@@ -47,7 +47,14 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const { id } = await params;
-    const body = await req.json();
+    const raw = await req.json();
+    const body = {
+      ...raw,
+      notes: raw.notes === "" ? null : raw.notes,
+      color: raw.color === "" ? null : raw.color,
+      defaultLocationId: raw.defaultLocationId === "" ? null : raw.defaultLocationId,
+      minimumRestHoursAfter: raw.minimumRestHoursAfter == null ? undefined : raw.minimumRestHoursAfter,
+    };
     const parsed = ShiftTemplateUpdateSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
