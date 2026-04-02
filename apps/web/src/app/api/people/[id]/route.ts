@@ -54,7 +54,13 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const { id } = await params;
-    const body = await req.json();
+    const raw = await req.json();
+    const body = {
+      ...raw,
+      phone: raw.phone === "" ? null : raw.phone,
+      email: raw.email === "" ? null : raw.email,
+      notes: raw.notes === "" ? null : raw.notes,
+    };
     const parsed = PersonUpdateSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(

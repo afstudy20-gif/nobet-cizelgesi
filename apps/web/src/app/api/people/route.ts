@@ -25,7 +25,13 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const raw = await req.json();
+    const body = {
+      ...raw,
+      phone: raw.phone === "" ? null : raw.phone,
+      email: raw.email === "" ? null : raw.email,
+      notes: raw.notes === "" ? null : raw.notes,
+    };
     const parsed = PersonCreateSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
