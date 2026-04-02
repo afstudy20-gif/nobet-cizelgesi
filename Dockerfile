@@ -9,6 +9,7 @@ COPY packages/ ./packages/
 COPY apps/web/package.json ./apps/web/
 RUN pnpm install --frozen-lockfile
 COPY apps/web/ ./apps/web/
+RUN pnpm --filter @nobet/web db:generate
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @nobet/web build
 
