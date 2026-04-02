@@ -1,5 +1,6 @@
 FROM node:20-alpine AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN apk add --no-cache openssl && \
+    corepack enable && corepack prepare pnpm@latest --activate
 
 # ── builder ───────────────────────────────────────────────────────────
 FROM base AS builder
