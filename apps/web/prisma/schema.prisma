@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum RuleType {
+  WEEKLY
+  SPECIFIC_DATE
+  DATE_RANGE
+  ONE_DAY
+}
+
+enum AvailabilityType {
+  AVAILABLE
+  UNAVAILABLE
+  PREFERRED
+}
+
+enum AssignmentStatus {
+  ASSIGNED
+  UNFILLED
+  CANCELLED
+}
+
+enum AssignmentSource {
+  AUTO
+  MANUAL
+}
+
+enum PeriodStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ConflictSeverity {
+  WARNING
+  ERROR
+}
+
+// ─── Core entities ────────────────────────────────────────────────────────────
+
+model Person {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  firstName String
+  lastName  String
+  fullName  String
+  phone     String?
+  email     String?
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locationRules    PersonLocationRule[]
+  workRule         PersonWorkRule?
+  availabilityRules AvailabilityRule[]
+  assignments      Assignment[]
+  conflictLogs     ConflictLog[]
+}
+
+model Location {
+  id       String  @id @default(cuid())
+  code     String  @unique
+  name     String
+  address  String?
+  isActive Boolean @default(true)
+  notes    String?
+
+  shiftTemplates   ShiftTemplate[]
+  coverageRules    CoverageRule[]
+  locationRules    PersonLocationRule[]
+  availabilityRules AvailabilityRule[]
+  shiftRequirements ShiftRequirement[]
+}
+
+model ShiftTemplate {
+  id                    String   @id @default(cuid())
+  code                  String   @unique
+  name                  String
+  startTime             String   // "HH:MM"
+  endTime               String   // "HH:MM"
+  crossesMidnight       Boolean  @default(false)
+  requiredHeadcount     Int      @default(1)
+  defaultLocation       Location? @relation(fields: [defaultLocationId], references: [id])
+  defaultLocationId     String?
+  color                 String?
+  isNightShift          Boolean  @default(false)
+  minimumRestHoursAfter Int      @default(12)
+  isActive              Boolean  @default(true)
+
+  coverageRules     CoverageRule[]
+  shiftRequirements ShiftRequirement[]
+}
+
+model CoverageRule {
+  id               String    @id @default(cuid())
+  location         Location  @relation(fields: [locationId], references: [id])
+  locationId       String
+  shiftTemplate    ShiftTemplate @relation(fields: [shiftTemplateId], references: [id])
+  shiftTemplateId  String
+  ruleType         RuleType
+  weekdays         Int[]     // [1..7] ISO weekday, for WEEKLY
+  specificDate     DateTime? // for SPECIFIC_DATE
+  validFrom        DateTime? // for DATE_RANGE
+  validTo          DateTime? // for DATE_RANGE
+  requiredHeadcount Int      @default(1)
+  priority         Int       @default(0)
+  isActive         Boolean   @default(true)
+}
+
+model PersonLocationRule {
+  id         String   @id @default(cuid())
+  person     Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  personId   String
+  location   Location @relation(fields: [locationId], references: [id])
+  locationId String
+  allowed    Boolean  @default(true)
+  priority   Int      @default(0)
+
+  @@unique([personId, locationId])
+}
+
+model PersonWorkRule {
+  id                              String  @id @default(cuid())
+  person                          Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  personId                        String  @unique
+  minAssignmentsPerPeriod         Int?
+  maxAssignmentsPerPeriod         Int?
+  maxNightAssignmentsPerPeriod    Int?
+  maxWeekendAssignmentsPerPeriod  Int?
+  maxConsecutiveDays              Int?
+  minRestHoursBetweenAssignments  Int     @default(12)
+  allowBackToBackNightShift       Boolean @default(false)
+}
+
+model AvailabilityRule {
+  id               String           @id @default(cuid())
+  person           Person           @relation(fields: [personId], references: [id], onDelete: Cascade)
+  personId         String
+  ruleType         RuleType
+  availabilityType AvailabilityType
+  weekdays         Int[]            // for WEEKLY
+  startTime        String?          // "HH:MM"
+  endTime          String?          // "HH:MM"
+  validFrom        DateTime?
+  validTo          DateTime?
+  location         Location?        @relation(fields: [locationId], references: [id])
+  locationId       String?
+  notes            String?
+  createdAt        DateTime         @default(now())
+}
+
+// ─── Scheduling ───────────────────────────────────────────────────────────────
+
+model SchedulePeriod {
+  id               String       @id @default(cuid())
+  name             String
+  startDate        DateTime
+  endDate          DateTime
+  status           PeriodStatus @default(DRAFT)
+  generationNotes  String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  requirements ShiftRequirement[]
+  assignments  Assignment[]
+  conflictLogs ConflictLog[]
+}
+
+model ShiftRequirement {
+  id                String        @id @default(cuid())
+  period            SchedulePeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  periodId          String
+  date              DateTime
+  shiftTemplate     ShiftTemplate  @relation(fields: [shiftTemplateId], references: [id])
+  shiftTemplateId   String
+  location          Location       @relation(fields: [locationId], references: [id])
+  locationId        String
+  requiredHeadcount Int
+  priority          Int            @default(0)
+
+  assignments  Assignment[]
+  conflictLogs ConflictLog[]
+}
+
+model Assignment {
+  id                 String           @id @default(cuid())
+  period             SchedulePeriod   @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  periodId           String
+  shiftRequirement   ShiftRequirement @relation(fields: [shiftRequirementId], references: [id], onDelete: Cascade)
+  shiftRequirementId String
+  person             Person?          @relation(fields: [personId], references: [id])
+  personId           String?
+  date               DateTime
+  startDateTime      DateTime
+  endDateTime        DateTime
+  status             AssignmentStatus @default(ASSIGNED)
+  isLocked           Boolean          @default(false)
+  source             AssignmentSource @default(AUTO)
+  score              Float?
+  notes              String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+}
+
+model ConflictLog {
+  id                 String            @id @default(cuid())
+  period             SchedulePeriod    @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  periodId           String
+  shiftRequirement   ShiftRequirement? @relation(fields: [shiftRequirementId], references: [id])
+  shiftRequirementId String?
+  person             Person?           @relation(fields: [personId], references: [id])
+  personId           String?
+  type               String
+  severity           ConflictSeverity
+  message            String
+  metadata           Json?
+  createdAt          DateTime          @default(now())
+}

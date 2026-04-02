@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nobet-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: nobet123
+      POSTGRES_DB: nobet_cizelgesi
+    ports:
+      - "5432:5432"
+    volumes:
+      - nobet-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: nobet-web
+    ports:
+      - "3100:3100"
+    environment:
+      DATABASE_URL: postgresql://postgres:nobet123@postgres:5432/nobet_cizelgesi
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  nobet-pgdata:

@@ -1,0 +1,223 @@
+{
+  "people": [
+    {
+      "code": "P001",
+      "firstName": "Ayşe",
+      "lastName": "Yılmaz",
+      "isActive": true,
+      "notes": "Gece nöbetini mümkünse az almalı."
+    },
+    {
+      "code": "P002",
+      "firstName": "Mehmet",
+      "lastName": "Kaya",
+      "isActive": true,
+      "notes": "Hafta sonu çalışabilir."
+    },
+    {
+      "code": "P003",
+      "firstName": "Elif",
+      "lastName": "Demir",
+      "isActive": true,
+      "notes": "Yarı zamanlı düzen."
+    },
+    {
+      "code": "P004",
+      "firstName": "Burak",
+      "lastName": "Şen",
+      "isActive": true,
+      "notes": "Acil kapatma atamaları için uygun."
+    }
+  ],
+  "locations": [
+    {
+      "code": "LOC1",
+      "name": "Merkez Klinik"
+    },
+    {
+      "code": "LOC2",
+      "name": "Ek Hizmet Binası"
+    }
+  ],
+  "shiftTemplates": [
+    {
+      "code": "SABAH",
+      "name": "Sabah Vardiyası",
+      "startTime": "08:00",
+      "endTime": "16:00",
+      "crossesMidnight": false,
+      "requiredHeadcount": 1,
+      "isNightShift": false,
+      "minimumRestHoursAfter": 12
+    },
+    {
+      "code": "AKSAM",
+      "name": "Akşam Vardiyası",
+      "startTime": "16:00",
+      "endTime": "00:00",
+      "crossesMidnight": false,
+      "requiredHeadcount": 1,
+      "isNightShift": false,
+      "minimumRestHoursAfter": 12
+    },
+    {
+      "code": "GECE",
+      "name": "Gece Nöbeti",
+      "startTime": "00:00",
+      "endTime": "08:00",
+      "crossesMidnight": false,
+      "requiredHeadcount": 1,
+      "isNightShift": true,
+      "minimumRestHoursAfter": 24
+    }
+  ],
+  "coverageRules": [
+    {
+      "locationCode": "LOC1",
+      "shiftCode": "SABAH",
+      "ruleType": "WEEKLY",
+      "weekday": [1, 2, 3, 4, 5],
+      "requiredHeadcount": 1
+    },
+    {
+      "locationCode": "LOC1",
+      "shiftCode": "AKSAM",
+      "ruleType": "WEEKLY",
+      "weekday": [1, 2, 3, 4, 5, 6, 7],
+      "requiredHeadcount": 1
+    },
+    {
+      "locationCode": "LOC1",
+      "shiftCode": "GECE",
+      "ruleType": "WEEKLY",
+      "weekday": [1, 2, 3, 4, 5, 6, 7],
+      "requiredHeadcount": 1
+    },
+    {
+      "locationCode": "LOC2",
+      "shiftCode": "SABAH",
+      "ruleType": "WEEKLY",
+      "weekday": [1, 3, 5],
+      "requiredHeadcount": 1
+    }
+  ],
+  "personLocationRules": [
+    {
+      "personCode": "P001",
+      "locationCode": "LOC1",
+      "allowed": true
+    },
+    {
+      "personCode": "P002",
+      "locationCode": "LOC1",
+      "allowed": true
+    },
+    {
+      "personCode": "P002",
+      "locationCode": "LOC2",
+      "allowed": true
+    },
+    {
+      "personCode": "P003",
+      "locationCode": "LOC1",
+      "allowed": true
+    },
+    {
+      "personCode": "P004",
+      "locationCode": "LOC1",
+      "allowed": true
+    },
+    {
+      "personCode": "P004",
+      "locationCode": "LOC2",
+      "allowed": true
+    }
+  ],
+  "personWorkRules": [
+    {
+      "personCode": "P001",
+      "maxAssignmentsPerPeriod": 18,
+      "maxNightAssignmentsPerPeriod": 2,
+      "maxWeekendAssignmentsPerPeriod": 3,
+      "minRestHoursBetweenAssignments": 12,
+      "allowBackToBackNightShift": false
+    },
+    {
+      "personCode": "P002",
+      "maxAssignmentsPerPeriod": 22,
+      "maxNightAssignmentsPerPeriod": 6,
+      "maxWeekendAssignmentsPerPeriod": 6,
+      "minRestHoursBetweenAssignments": 12,
+      "allowBackToBackNightShift": false
+    },
+    {
+      "personCode": "P003",
+      "maxAssignmentsPerPeriod": 12,
+      "maxNightAssignmentsPerPeriod": 0,
+      "maxWeekendAssignmentsPerPeriod": 2,
+      "minRestHoursBetweenAssignments": 12,
+      "allowBackToBackNightShift": false
+    },
+    {
+      "personCode": "P004",
+      "maxAssignmentsPerPeriod": 24,
+      "maxNightAssignmentsPerPeriod": 8,
+      "maxWeekendAssignmentsPerPeriod": 6,
+      "minRestHoursBetweenAssignments": 12,
+      "allowBackToBackNightShift": true
+    }
+  ],
+  "availabilityRules": [
+    {
+      "personCode": "P001",
+      "ruleType": "WEEKLY",
+      "availabilityType": "AVAILABLE",
+      "weekday": [1, 2, 3, 4, 5],
+      "startTime": "08:00",
+      "endTime": "16:00"
+    },
+    {
+      "personCode": "P001",
+      "ruleType": "WEEKLY",
+      "availabilityType": "UNAVAILABLE",
+      "weekday": [6, 7]
+    },
+    {
+      "personCode": "P002",
+      "ruleType": "WEEKLY",
+      "availabilityType": "AVAILABLE",
+      "weekday": [1, 2, 3, 4, 5, 6, 7],
+      "startTime": "16:00",
+      "endTime": "23:59"
+    },
+    {
+      "personCode": "P003",
+      "ruleType": "WEEKLY",
+      "availabilityType": "AVAILABLE",
+      "weekday": [1, 3, 5],
+      "startTime": "08:00",
+      "endTime": "16:00"
+    },
+    {
+      "personCode": "P004",
+      "ruleType": "WEEKLY",
+      "availabilityType": "AVAILABLE",
+      "weekday": [1, 2, 3, 4, 5, 6, 7],
+      "startTime": "00:00",
+      "endTime": "23:59"
+    },
+    {
+      "personCode": "P001",
+      "ruleType": "DATE_RANGE",
+      "availabilityType": "UNAVAILABLE",
+      "validFrom": "2026-04-10",
+      "validTo": "2026-04-12",
+      "notes": "Yıllık izin"
+    }
+  ],
+  "scheduleRequest": {
+    "name": "Nisan 2026 Nöbet Planı",
+    "startDate": "2026-04-01",
+    "endDate": "2026-04-30"
+  }
+}
