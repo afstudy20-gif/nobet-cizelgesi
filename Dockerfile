@@ -21,14 +21,19 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+RUN npm install -g prisma@5.22.0 --ignore-scripts
 
 COPY --from=builder /app/apps/web/public ./apps/web/public
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder /app/apps/web/prisma ./apps/web/prisma
+
+COPY start.sh ./start.sh
+RUN chmod +x start.sh && chown nextjs:nodejs start.sh
 
 USER nextjs
 EXPOSE 3100
 ENV PORT=3100
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "apps/web/server.js"]
+CMD ["sh", "start.sh"]
