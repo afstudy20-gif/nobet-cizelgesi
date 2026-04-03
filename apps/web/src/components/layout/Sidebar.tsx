@@ -11,6 +11,7 @@ import {
   Calendar,
   Download,
   Shield,
+  Calculator,
 } from "lucide-react";
 
 const nav = [
@@ -22,6 +23,7 @@ const nav = [
   { href: "/periods", label: "Dönem & Çizelge", icon: CalendarRange },
   { href: "/schedule", label: "Çizelge Görünümü", icon: Calendar },
   { href: "/export", label: "Dışa Aktar", icon: Download },
+  { href: "/calculator", label: "Hesap Araçları", icon: Calculator },
 ];
 
 export function Sidebar() {
