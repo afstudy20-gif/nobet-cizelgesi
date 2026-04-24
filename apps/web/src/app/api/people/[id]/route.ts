@@ -40,7 +40,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       {}
     );
 
-    const { assignments: _assignments, ...personRest } = person;
+    const personRest = { ...person, assignments: undefined };
     return NextResponse.json({ ...personRest, assignmentCounts });
   } catch (err) {
     console.error("[GET /api/people/:id]", err);

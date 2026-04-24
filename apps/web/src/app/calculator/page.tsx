@@ -65,8 +65,13 @@ function compute(src: string, cells: Cells, vis: Set<string>): number {
 
   function evalFn(name: string, a: Array<number | string[]>): number {
     const ns: number[] = [];
-    for (const x of a)
-      Array.isArray(x) ? ns.push(...x.map(id => cellNum(id, cells, vis))) : ns.push(x);
+    for (const x of a) {
+      if (Array.isArray(x)) {
+        ns.push(...x.map(id => cellNum(id, cells, vis)));
+      } else {
+        ns.push(x);
+      }
+    }
     switch (name) {
       case "SUM":     return ns.reduce((a, b) => a + b, 0);
       case "AVERAGE": case "AVG": return ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : 0;

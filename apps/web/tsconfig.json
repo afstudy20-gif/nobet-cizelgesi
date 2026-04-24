@@ -6,7 +6,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@nobet/shared": ["../../packages/shared/src/index.ts"]
-    }
+    },
+    "incremental": true
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]

@@ -176,13 +176,12 @@ function EditAssignmentModal({ assignment, people, onClose, onSaved }: EditModal
 
 interface TableViewProps {
   assignments: Assignment[];
-  people: Person[];
   onCellClick: (assignment: Assignment) => void;
   onToggleLock: (assignment: Assignment) => void;
   lockingIds: Set<string>;
 }
 
-function TableView({ assignments, people, onCellClick, onToggleLock, lockingIds }: TableViewProps) {
+function TableView({ assignments, onCellClick, onToggleLock, lockingIds }: TableViewProps) {
   // Build unique dates and unique (location+shift) columns
   const dateSet = new Set<string>();
   const colKeySet = new Set<string>();
@@ -587,7 +586,6 @@ function SchedulePageInner() {
               {activeTab === "table" && (
                 <TableView
                   assignments={schedule.assignments}
-                  people={people}
                   onCellClick={setEditingAssignment}
                   onToggleLock={handleToggleLock}
                   lockingIds={lockingIds}
