@@ -363,6 +363,113 @@ function PersonView({ assignments }: PersonViewProps) {
   );
 }
 
+// ─── Calendar View ───────────────────────────────────────────────────────────
+
+interface CalendarViewProps {
+  assignments: Assignment[];
+}
+
+const WEEKDAY_LABELS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
+
+function CalendarView({ assignments }: CalendarViewProps) {
+  // Group assignments by day (YYYY-MM-DD)
+  const byDay = new Map<string, Assignment[]>();
+  for (const a of assignments) {
+    const d = a.date.split("T")[0];
+    if (!byDay.has(d)) byDay.set(d, []);
+    byDay.get(d)!.push(a);
+  }
+
+  const days = Array.from(byDay.keys()).sort();
+  if (days.length === 0) {
+    return <p className="text-sm text-gray-500 py-4">Atama bulunamadı.</p>;
+  }
+
+  // Build the set of months that the schedule spans
+  const monthSet = new Set<string>();
+  for (const d of days) monthSet.add(d.slice(0, 7)); // YYYY-MM
+  const months = Array.from(monthSet).sort();
+
+  // Monday-first weekday index (0=Mon … 6=Sun)
+  function mondayIndex(date: Date) {
+    return (date.getDay() + 6) % 7;
+  }
+
+  return (
+    <div className="space-y-8">
+      {months.map((month) => {
+        const [year, mon] = month.split("-").map(Number);
+        const firstOfMonth = new Date(year, mon - 1, 1);
+        const daysInMonth = new Date(year, mon, 0).getDate();
+        const leadingBlanks = mondayIndex(firstOfMonth);
+
+        const cells: (number | null)[] = [];
+        for (let i = 0; i < leadingBlanks; i++) cells.push(null);
+        for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+        while (cells.length % 7 !== 0) cells.push(null);
+
+        const monthLabel = firstOfMonth.toLocaleDateString("tr-TR", {
+          month: "long",
+          year: "numeric",
+        });
+
+        return (
+          <div key={month}>
+            <h3 className="text-sm font-semibold text-gray-700 mb-2 capitalize">
+              {monthLabel}
+            </h3>
+            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+              {WEEKDAY_LABELS.map((w) => (
+                <div
+                  key={w}
+                  className="bg-gray-50 px-2 py-1.5 text-center text-xs font-medium text-gray-500"
+                >
+                  {w}
+                </div>
+              ))}
+              {cells.map((day, idx) => {
+                if (day === null) {
+                  return <div key={idx} className="bg-gray-50 min-h-[90px]" />;
+                }
+                const dateKey = `${year}-${String(mon).padStart(2, "0")}-${String(
+                  day
+                ).padStart(2, "0")}`;
+                const dayAssignments = byDay.get(dateKey) ?? [];
+                const dow = new Date(year, mon - 1, day).getDay();
+                const weekend = dow === 0 || dow === 6;
+                return (
+                  <div
+                    key={idx}
+                    className={`min-h-[90px] p-1.5 ${weekend ? "bg-amber-50" : "bg-white"}`}
+                  >
+                    <div className="text-xs font-medium text-gray-500 mb-1">{day}</div>
+                    <div className="flex flex-col gap-0.5">
+                      {dayAssignments.map((a) => (
+                        <div
+                          key={a.id}
+                          title={`${a.shiftRequirement.location.name} / ${a.shiftRequirement.shiftTemplate.name}`}
+                          className={`truncate px-1 py-0.5 rounded text-[10px] font-medium ${
+                            a.status === "UNFILLED" || !a.person
+                              ? "bg-red-100 text-red-700"
+                              : "bg-blue-50 text-blue-800"
+                          }`}
+                        >
+                          {a.shiftRequirement.shiftTemplate.code}:{" "}
+                          {a.person ? a.person.fullName : "Boş"}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 function SchedulePageInner() {
@@ -379,7 +486,7 @@ function SchedulePageInner() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   const [people, setPeople] = useState<Person[]>([]);
-  const [activeTab, setActiveTab] = useState<"table" | "person">("table");
+  const [activeTab, setActiveTab] = useState<"table" | "person" | "calendar">("table");
 
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
   const [lockingIds, setLockingIds] = useState<Set<string>>(new Set());
@@ -563,7 +670,7 @@ function SchedulePageInner() {
 
           {/* Tabs */}
           <div className="flex gap-1 mb-4 border-b border-gray-200">
-            {(["table", "person"] as const).map((tab) => (
+            {(["table", "person", "calendar"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -573,7 +680,11 @@ function SchedulePageInner() {
                     : "border-transparent text-gray-500 hover:text-gray-700"
                 }`}
               >
-                {tab === "table" ? "Tablo Görünümü" : "Kişi Görünümü"}
+                {tab === "table"
+                  ? "Tablo Görünümü"
+                  : tab === "person"
+                  ? "Kişi Görünümü"
+                  : "Takvim Görünümü"}
               </button>
             ))}
           </div>
@@ -593,6 +704,9 @@ function SchedulePageInner() {
               )}
               {activeTab === "person" && (
                 <PersonView assignments={schedule.assignments} />
+              )}
+              {activeTab === "calendar" && (
+                <CalendarView assignments={schedule.assignments} />
               )}
 
               {/* Conflict log */}

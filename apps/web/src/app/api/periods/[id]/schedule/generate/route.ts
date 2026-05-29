@@ -1,50 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AssignmentStatus, AssignmentSource, ConflictSeverity } from "@prisma/client";
+import { getISODay, addDays, startOfDay, isWithinInterval } from "date-fns";
 import {
-  getISODay,
-  addDays,
-  startOfDay,
-  isWithinInterval,
-} from "date-fns";
+  shiftStart,
+  shiftEnd,
+  overlaps,
+  isWeekend,
+  isPersonUnavailable,
+  getAvailabilityMatch,
+} from "@nobet/scheduler";
 
 type Params = { params: Promise<{ id: string }> };
-
-// ─── Time helpers ─────────────────────────────────────────────────────────────
-
-/** Parse "HH:MM" into { hours, minutes } */
-function parseHHMM(t: string): { hours: number; minutes: number } {
-  const [h, m] = t.split(":").map(Number);
-  return { hours: h ?? 0, minutes: m ?? 0 };
-}
-
-/** Build the absolute start DateTime for a shift on a given day */
-function shiftStart(day: Date, startTime: string): Date {
-  const { hours, minutes } = parseHHMM(startTime);
-  const d = new Date(startOfDay(day));
-  d.setHours(hours, minutes, 0, 0);
-  return d;
-}
-
-/** Build the absolute end DateTime for a shift on a given day, respecting crossesMidnight */
-function shiftEnd(day: Date, endTime: string, crossesMidnight: boolean): Date {
-  const { hours, minutes } = parseHHMM(endTime);
-  const base = crossesMidnight ? addDays(startOfDay(day), 1) : startOfDay(day);
-  const d = new Date(base);
-  d.setHours(hours, minutes, 0, 0);
-  return d;
-}
-
-/** True if two [s1,e1) and [s2,e2) intervals overlap */
-function overlaps(s1: Date, e1: Date, s2: Date, e2: Date): boolean {
-  return s1 < e2 && s2 < e1;
-}
-
-/** True if the given date is a weekend (Saturday=6 or Sunday=7 ISO) */
-function isWeekend(date: Date): boolean {
-  const d = getISODay(date);
-  return d === 6 || d === 7;
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,116 +63,6 @@ type Person = {
   locationRules: LocationRule[];
   availabilityRules: AvailabilityRule[];
 };
-
-// ─── Availability check ───────────────────────────────────────────────────────
-
-/**
- * Returns true if the person is UNAVAILABLE for the given shift window.
- * A person is unavailable if any UNAVAILABLE AvailabilityRule covers this date+time.
- */
-function isPersonUnavailable(
-  person: Person,
-  shiftDate: Date,
-  reqStart: Date,
-  reqEnd: Date
-): boolean {
-  const isoWeekday = getISODay(shiftDate);
-  const dayStart = startOfDay(shiftDate);
-
-  for (const rule of person.availabilityRules) {
-    if (rule.availabilityType !== "UNAVAILABLE") continue;
-
-    let ruleCoversDate = false;
-
-    if (rule.ruleType === "WEEKLY") {
-      ruleCoversDate = rule.weekdays.includes(isoWeekday);
-    } else if (rule.ruleType === "ONE_DAY") {
-      if (rule.validFrom != null) {
-        ruleCoversDate =
-          startOfDay(rule.validFrom).getTime() === dayStart.getTime();
-      }
-    } else if (rule.ruleType === "DATE_RANGE") {
-      if (rule.validFrom != null && rule.validTo != null) {
-        ruleCoversDate = isWithinInterval(dayStart, {
-          start: startOfDay(rule.validFrom),
-          end: startOfDay(rule.validTo),
-        });
-      }
-    }
-
-    if (!ruleCoversDate) continue;
-
-    // If no time range specified → full day unavailable
-    if (rule.startTime == null || rule.endTime == null) return true;
-
-    // Build the rule's time window on the same day (no crossesMidnight for availability rules)
-    const ruleStart = shiftStart(shiftDate, rule.startTime);
-    const ruleEnd = shiftStart(shiftDate, rule.endTime);
-
-    // If rule end <= rule start, it crosses midnight
-    const effectiveRuleEnd =
-      ruleEnd <= ruleStart ? addDays(ruleEnd, 1) : ruleEnd;
-
-    if (overlaps(reqStart, reqEnd, ruleStart, effectiveRuleEnd)) return true;
-  }
-
-  return false;
-}
-
-// ─── Score helpers ────────────────────────────────────────────────────────────
-
-/**
- * Check if any availability rule is PREFERRED for this shift.
- * Returns 'preferred' | 'unpreferred' | 'neutral'
- */
-function getAvailabilityMatch(
-  person: Person,
-  shiftDate: Date,
-  reqStart: Date,
-  reqEnd: Date
-): "preferred" | "unpreferred" | "neutral" {
-  const isoWeekday = getISODay(shiftDate);
-  const dayStart = startOfDay(shiftDate);
-
-  for (const rule of person.availabilityRules) {
-    if (
-      rule.availabilityType !== "PREFERRED" &&
-      rule.availabilityType !== "AVAILABLE"
-    )
-      continue;
-
-    let ruleCoversDate = false;
-    if (rule.ruleType === "WEEKLY") {
-      ruleCoversDate = rule.weekdays.includes(isoWeekday);
-    } else if (rule.ruleType === "ONE_DAY") {
-      if (rule.validFrom != null)
-        ruleCoversDate =
-          startOfDay(rule.validFrom).getTime() === dayStart.getTime();
-    } else if (rule.ruleType === "DATE_RANGE") {
-      if (rule.validFrom != null && rule.validTo != null) {
-        ruleCoversDate = isWithinInterval(dayStart, {
-          start: startOfDay(rule.validFrom),
-          end: startOfDay(rule.validTo),
-        });
-      }
-    }
-
-    if (!ruleCoversDate) continue;
-
-    if (rule.startTime != null && rule.endTime != null) {
-      const ruleStart = shiftStart(shiftDate, rule.startTime);
-      const ruleEnd = shiftStart(shiftDate, rule.endTime);
-      const effectiveRuleEnd =
-        ruleEnd <= ruleStart ? addDays(ruleEnd, 1) : ruleEnd;
-      if (!overlaps(reqStart, reqEnd, ruleStart, effectiveRuleEnd)) continue;
-    }
-
-    return rule.availabilityType === "PREFERRED" ? "preferred" : "neutral";
-  }
-
-  // No matching PREFERRED/AVAILABLE rule found
-  return "unpreferred";
-}
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 

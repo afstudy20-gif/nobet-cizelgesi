@@ -58,6 +58,11 @@ export default function ExportPage() {
     window.open(`/api/periods/${selectedPeriodId}/export/word?${buildQueryString()}`, "_blank");
   }
 
+  function handlePdfDownload() {
+    if (!selectedPeriodId) return;
+    window.open(`/api/periods/${selectedPeriodId}/export/pdf?${buildQueryString()}`, "_blank");
+  }
+
   const selectedPeriod = periods.find((p) => p.id === selectedPeriodId);
 
   return (
@@ -152,10 +157,10 @@ export default function ExportPage() {
 
             <Button
               variant="secondary"
-              disabled
-              title="PDF dışa aktarma yakında"
+              onClick={handlePdfDownload}
+              disabled={!selectedPeriodId}
             >
-              PDF İndir (yakında)
+              PDF İndir (.pdf)
             </Button>
 
             <Button
@@ -172,7 +177,8 @@ export default function ExportPage() {
           )}
 
           <p className="text-xs text-gray-400 mt-3">
-            PDF dışa aktarma yakında kullanıma sunulacaktır.
+            PDF, yeni sekmede yazdırılabilir görünüm açar; tarayıcının &quot;PDF olarak
+            kaydet&quot; seçeneğiyle indirilir.
           </p>
         </div>
 

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@nobet/shared": "workspace:*",
+    "@nobet/scheduler": "workspace:*",
     "@prisma/client": "^5.14.0",
     "@tanstack/react-table": "^8.17.3",
     "date-fns": "^3.6.0",
