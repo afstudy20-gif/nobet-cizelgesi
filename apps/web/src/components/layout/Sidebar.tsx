@@ -14,6 +14,8 @@ import {
   Calculator,
 } from "lucide-react";
 
+import { CloudSync } from "./CloudSync";
+
 const nav = [
   { href: "/", label: "Genel Bakış", icon: LayoutDashboard },
   { href: "/people", label: "Personel", icon: Users },
@@ -33,6 +35,7 @@ export function Sidebar() {
       <div className="px-4 py-5 border-b border-gray-700">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-0.5">drtr.uk</p>
         <h1 className="text-base font-bold leading-tight">Nöbet Çizelgesi</h1>
+        <CloudSync />
       </div>
       <nav className="flex-1 py-4 space-y-0.5 px-2">
         {nav.map(({ href, label, icon: Icon }) => {
