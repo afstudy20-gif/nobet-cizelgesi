@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { resolveExportOptions } from "@/lib/export/resolve-options";
 import {
   Document,
   Paragraph,
@@ -70,6 +71,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       );
     }
 
+    const options = await resolveExportOptions(req.nextUrl.searchParams, period, "WORD");
+
     // Load assignments with relations
     const assignments = await prisma.assignment.findMany({
       where: { periodId },
@@ -89,7 +92,6 @@ export async function GET(req: NextRequest, { params }: Params) {
 
     const startDateStr = period.startDate.toLocaleDateString("tr-TR");
     const endDateStr = period.endDate.toLocaleDateString("tr-TR");
-    const startMonth = period.startDate.toISOString().slice(0, 7);
 
     // ─── Main assignments table ──────────────────────────────────────────
     const tableHeaderRow = new TableRow({
@@ -170,17 +172,33 @@ export async function GET(req: NextRequest, { params }: Params) {
           children: [
             // Title
             new Paragraph({
-              text: period.name,
+              text: options.title,
               heading: HeadingLevel.HEADING_1,
               alignment: AlignmentType.CENTER,
-              spacing: { after: 300 },
+              spacing: { after: 200 },
+            }),
+
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Hastane: ", bold: true }),
+                new TextRun({ text: options.hospitalName }),
+              ],
+              spacing: { after: 100 },
+            }),
+
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Çalışma Ayı: ", bold: true }),
+                new TextRun({ text: options.monthLabel }),
+              ],
+              spacing: { after: 100 },
             }),
 
             // Period info
             new Paragraph({
               children: [
                 new TextRun({ text: "Dönem: ", bold: true }),
-                new TextRun({ text: `${startDateStr} – ${endDateStr}` }),
+                new TextRun({ text: `${startDateStr} – ${endDateStr} (${period.name})` }),
               ],
               spacing: { after: 100 },
             }),
@@ -228,7 +246,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     });
 
     const buffer = await Packer.toBuffer(doc);
-    const filename = `nobet-raporu-${startMonth}.docx`;
+    const filename = `nobet-raporu-${options.workingMonth}.docx`;
 
     return new Response(new Uint8Array(buffer), {
       status: 200,

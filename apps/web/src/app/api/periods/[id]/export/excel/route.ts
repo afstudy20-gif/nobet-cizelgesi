@@ -2,16 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { calendarDateKey } from "@nobet/scheduler";
+import { resolveExportOptions } from "@/lib/export/resolve-options";
+import { applyPlaceholdersToWorkbook } from "@/lib/export/placeholders";
 
 type Params = { params: Promise<{ id: string }> };
+
+function addPlanMetadataRows(sheet: ExcelJS.Worksheet, title: string, hospitalName: string, monthLabel: string) {
+  sheet.insertRow(1, [title]);
+  sheet.insertRow(2, [`Hastane: ${hospitalName}`]);
+  sheet.insertRow(3, [`Çalışma Ayı: ${monthLabel}`]);
+  sheet.insertRow(4, []);
+  const titleRow = sheet.getRow(1);
+  titleRow.font = { bold: true, size: 14 };
+  titleRow.alignment = { vertical: "middle" };
+  if (sheet.columnCount > 1) {
+    sheet.mergeCells(1, 1, 1, sheet.columnCount);
+  }
+}
 
 export async function GET(req: NextRequest, { params }: Params) {
   try {
     const { id: periodId } = await params;
-    const { searchParams } = new URL(req.url);
-    const includeSummary = searchParams.get("includeSummary") !== "false";
-    const includeConflicts = searchParams.get("includeConflicts") !== "false";
-    const view = searchParams.get("view") ?? "grid";
 
     // Load period
     const period = await prisma.schedulePeriod.findUnique({
@@ -32,6 +43,9 @@ export async function GET(req: NextRequest, { params }: Params) {
         { status: 404 }
       );
     }
+
+    const options = await resolveExportOptions(req.nextUrl.searchParams, period, "EXCEL");
+    const { includeSummary, includeConflicts, view } = options;
 
     // Load assignments
     const assignments = await prisma.assignment.findMany({
@@ -58,8 +72,14 @@ export async function GET(req: NextRequest, { params }: Params) {
 
     // ─── Build workbook ────────────────────────────────────────────────────
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Nöbet Çizelgesi Sistemi";
-    workbook.created = new Date();
+    if (options.template?.fileData) {
+      // ExcelJS Buffer type differs from Node Buffer in strict TS builds
+      await workbook.xlsx.load(Buffer.from(options.template.fileData) as never);
+      await applyPlaceholdersToWorkbook(workbook, options.placeholderVars);
+    } else {
+      workbook.creator = "Nöbet Çizelgesi Sistemi";
+      workbook.created = new Date();
+    }
 
     const dateSet = new Set<string>();
     for (const a of assignments) {
@@ -85,9 +105,9 @@ export async function GET(req: NextRequest, { params }: Params) {
       });
     };
 
-    const planSheet = workbook.addWorksheet(
-      view === "person" ? "Kişi Bazlı" : view === "location" ? "Lokasyon Bazlı" : "Plan"
-    );
+    const planSheetName =
+      view === "person" ? "Kişi Bazlı" : view === "location" ? "Lokasyon Bazlı" : "Plan";
+    const planSheet = workbook.addWorksheet(planSheetName);
 
     if (view === "person") {
       const peopleMap = new Map<string, string>();
@@ -215,6 +235,16 @@ export async function GET(req: NextRequest, { params }: Params) {
       });
     }
 
+    if (!options.template?.fileData) {
+      addPlanMetadataRows(
+        planSheet,
+        options.title,
+        options.hospitalName,
+        options.monthLabel
+      );
+      planSheet.views = [{ state: "frozen", ySplit: 5 }];
+    }
+
     // ── Sheet 2: Kişi Özeti (if includeSummary) ───────────────────────────
     if (includeSummary) {
       const summarySheet = workbook.addWorksheet("Kişi Özeti");
@@ -334,8 +364,12 @@ export async function GET(req: NextRequest, { params }: Params) {
     // ─── Generate buffer and return ────────────────────────────────────────
     const buffer = await workbook.xlsx.writeBuffer();
 
-    const startMonth = period.startDate.toISOString().slice(0, 7);
-    const filename = `nobet-plani-${startMonth}.xlsx`;
+    const hospitalSlug = options.hospitalName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40);
+    const filename = `nobet-plani-${options.workingMonth}${hospitalSlug ? `-${hospitalSlug}` : ""}.xlsx`;
 
     return new Response(new Uint8Array(buffer as ArrayBuffer), {
       status: 200,

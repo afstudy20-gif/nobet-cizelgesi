@@ -104,3 +104,24 @@ export const AssignmentPatchSchema = z.object({
   isLocked: z.boolean().optional(),
   notes: z.string().max(500).optional().nullable(),
 });
+
+// ─── Export templates ────────────────────────────────────────────────────────
+export const ExportTemplateConfigSchema = z.object({
+  view: z.enum(["grid", "person", "location"]).default("grid"),
+  includeSummary: z.boolean().default(true),
+  includeConflicts: z.boolean().default(true),
+  sheetName: z.string().max(100).optional(),
+  headerColor: z.string().max(20).optional(),
+});
+
+export const ExportTemplateCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(1000).optional().nullable(),
+  format: z.enum(["EXCEL", "WORD", "PDF"]),
+  hospitalName: z.string().max(200).optional().nullable(),
+  titleTemplate: z.string().min(1).max(500).optional(),
+  config: ExportTemplateConfigSchema.optional(),
+  isDefault: z.boolean().optional(),
+});
+
+export const ExportTemplateUpdateSchema = ExportTemplateCreateSchema.partial();

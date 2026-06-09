@@ -44,6 +44,18 @@ enum ConflictSeverity {
   ERROR
 }
 
+enum ExportFormat {
+  EXCEL
+  WORD
+  PDF
+}
+
+enum ExportTemplateSource {
+  BUILTIN
+  CUSTOM
+  UPLOADED
+}
+
 // ─── Core entities ────────────────────────────────────────────────────────────
 
 model Person {
@@ -224,4 +236,22 @@ model ConflictLog {
   message            String
   metadata           Json?
   createdAt          DateTime          @default(now())
+}
+
+// ─── Export templates ─────────────────────────────────────────────────────────
+
+model ExportTemplate {
+  id             String               @id @default(cuid())
+  name           String
+  description    String?
+  format         ExportFormat
+  sourceType     ExportTemplateSource @default(CUSTOM)
+  hospitalName   String?
+  titleTemplate  String               @default("{{hospital}} — {{month}} {{year}} Nöbet Çizelgesi")
+  config         Json                 @default("{}")
+  fileName       String?
+  fileData       Bytes?
+  isDefault      Boolean              @default(false)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 }

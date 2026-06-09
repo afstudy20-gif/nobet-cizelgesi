@@ -147,6 +147,57 @@ async function main() {
     },
   });
 
+  const exportTemplates = [
+    {
+      id: "seed-export-excel-standard",
+      name: "Standart Excel Tablo",
+      description: "Izgara görünümü, özet ve çakışma sayfaları ile varsayılan Excel çıktısı.",
+      format: "EXCEL" as const,
+      sourceType: "BUILTIN" as const,
+      hospitalName: "Merkez Klinik",
+      titleTemplate: "{{hospital}} — {{month}} {{year}} Nöbet Çizelgesi",
+      config: { view: "grid", includeSummary: true, includeConflicts: true },
+      isDefault: true,
+    },
+    {
+      id: "seed-export-word-standard",
+      name: "Standart Word Rapor",
+      description: "Hastane ve ay bilgisi ile tablo formatında Word raporu.",
+      format: "WORD" as const,
+      sourceType: "BUILTIN" as const,
+      hospitalName: "Merkez Klinik",
+      titleTemplate: "{{hospital}} — {{month}} {{year}} Nöbet Raporu",
+      config: { view: "grid", includeSummary: false, includeConflicts: false },
+      isDefault: true,
+    },
+    {
+      id: "seed-export-pdf-standard",
+      name: "Standart PDF",
+      description: "Yazdırılabilir PDF görünümü için varsayılan başlık şablonu.",
+      format: "PDF" as const,
+      sourceType: "BUILTIN" as const,
+      hospitalName: "Merkez Klinik",
+      titleTemplate: "{{hospital}} — {{month}} {{year}} Nöbet Çizelgesi",
+      config: { view: "grid", includeSummary: true, includeConflicts: true },
+      isDefault: true,
+    },
+  ];
+
+  for (const template of exportTemplates) {
+    await prisma.exportTemplate.upsert({
+      where: { id: template.id },
+      update: {
+        name: template.name,
+        description: template.description,
+        hospitalName: template.hospitalName,
+        titleTemplate: template.titleTemplate,
+        config: template.config,
+        isDefault: template.isDefault,
+      },
+      create: template,
+    });
+  }
+
   console.log("Seed complete.");
 }
 

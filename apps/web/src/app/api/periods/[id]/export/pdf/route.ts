@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calendarDateKey } from "@nobet/scheduler";
+import { resolveExportOptions } from "@/lib/export/resolve-options";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -20,11 +21,6 @@ function esc(value: string): string {
 export async function GET(req: NextRequest, { params }: Params) {
   try {
     const { id: periodId } = await params;
-    const { searchParams } = new URL(req.url);
-    const includeSummary = searchParams.get("includeSummary") !== "false";
-    const includeConflicts = searchParams.get("includeConflicts") !== "false";
-    const view = searchParams.get("view") ?? "grid";
-
     const period = await prisma.schedulePeriod.findUnique({
       where: { id: periodId },
     });
@@ -35,6 +31,9 @@ export async function GET(req: NextRequest, { params }: Params) {
         { status: 404 }
       );
     }
+
+    const options = await resolveExportOptions(req.nextUrl.searchParams, period, "PDF");
+    const { includeSummary, includeConflicts, view } = options;
 
     const assignments = await prisma.assignment.findMany({
       where: { periodId },
@@ -184,7 +183,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 <html lang="tr">
 <head>
 <meta charset="utf-8" />
-<title>Nöbet Planı — ${esc(period.name)}</title>
+<title>${esc(options.title)}</title>
 <style>
   @page { size: A4 landscape; margin: 12mm; }
   * { box-sizing: border-box; }
@@ -213,9 +212,11 @@ export async function GET(req: NextRequest, { params }: Params) {
   <div class="no-print">
     <button onclick="window.print()">Yazdır / PDF olarak kaydet</button>
   </div>
-  <h1>${esc(period.name)}</h1>
+  <h1>${esc(options.title)}</h1>
   <div class="meta">
-    <strong>Dönem:</strong> ${esc(startDateStr)} – ${esc(endDateStr)}
+    <strong>Hastane:</strong> ${esc(options.hospitalName)}
+    &nbsp;|&nbsp; <strong>Çalışma Ayı:</strong> ${esc(options.monthLabel)}
+    &nbsp;|&nbsp; <strong>Dönem:</strong> ${esc(startDateStr)} – ${esc(endDateStr)} (${esc(period.name)})
     &nbsp;|&nbsp; <strong>Toplam Atama:</strong> ${assignments.length}
     &nbsp;|&nbsp; <strong>Boş:</strong> ${unfilled.length}
     &nbsp;|&nbsp; <strong>Görünüm:</strong> ${esc(viewLabel)}
