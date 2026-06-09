@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { parsePersonNamesFromText, suggestPersonCodes } from "@nobet/shared";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -33,6 +34,16 @@ const emptyForm = {
 
 type FormState = typeof emptyForm;
 
+type ImportRow = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  code: string;
+  selected: boolean;
+  duplicate: boolean;
+};
+
 function PeoplePageInner() {
   const searchParams = useSearchParams();
   const [people, setPeople] = useState<Person[]>([]);
@@ -43,6 +54,12 @@ function PeoplePageInner() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [pasteText, setPasteText] = useState("");
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
 
   async function fetchPeople() {
     setLoading(true);
@@ -138,11 +155,208 @@ function PeoplePageInner() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  const existingNameKeys = useMemo(
+    () => new Set(people.map((p) => p.fullName.toLocaleLowerCase("tr"))),
+    [people]
+  );
+
+  useEffect(() => {
+    const parsed = parsePersonNamesFromText(pasteText);
+    const codes = suggestPersonCodes(
+      people.map((p) => p.code),
+      parsed.length
+    );
+    setImportRows(
+      parsed.map((row, index) => ({
+        id: `${row.fullName}-${index}`,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        fullName: row.fullName,
+        code: codes[index] ?? "",
+        selected: !existingNameKeys.has(row.fullName.toLocaleLowerCase("tr")),
+        duplicate: existingNameKeys.has(row.fullName.toLocaleLowerCase("tr")),
+      }))
+    );
+    setImportMessage(null);
+    setImportError(null);
+  }, [pasteText, people, existingNameKeys]);
+
+  const selectedImportCount = importRows.filter((r) => r.selected && !r.duplicate).length;
+
+  function updateImportRow(id: string, patch: Partial<ImportRow>) {
+    setImportRows((rows) =>
+      rows.map((row) => {
+        if (row.id !== id) return row;
+        const next = { ...row, ...patch };
+        if (patch.firstName !== undefined || patch.lastName !== undefined) {
+          next.fullName = `${next.firstName} ${next.lastName}`.trim();
+          next.duplicate = existingNameKeys.has(next.fullName.toLocaleLowerCase("tr"));
+        }
+        return next;
+      })
+    );
+  }
+
+  async function handleBulkImport() {
+    const payload = importRows.filter((r) => r.selected && !r.duplicate);
+    if (payload.length === 0) {
+      setImportError("İçe aktarılacak yeni personel seçilmedi.");
+      return;
+    }
+
+    setImporting(true);
+    setImportError(null);
+    setImportMessage(null);
+    try {
+      const res = await fetch("/api/people/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          people: payload.map((row) => ({
+            code: row.code,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            isActive: true,
+          })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error?.message ?? "Toplu içe aktarma başarısız oldu");
+      }
+
+      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
+      setImportMessage(
+        `${data.created ?? payload.length} personel eklendi${skipped > 0 ? `, ${skipped} kayıt atlandı` : ""}.`
+      );
+      setPasteText("");
+      setImportRows([]);
+      await fetchPeople();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Bir hata oluştu");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold text-gray-900">Personel Yönetimi</h1>
         <Button onClick={openNew}>+ Yeni Personel</Button>
+      </div>
+
+      <div className="card card-body mb-6 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Metinden Personel Ekle</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Excel, Word veya listeden kopyaladığınız metni yapıştırın. Her satırdan ad soyad
+            otomatik ayrıştırılır (virgül, tab, numaralı liste desteklenir).
+          </p>
+        </div>
+        <Textarea
+          id="pastePeople"
+          label="Personel listesi"
+          value={pasteText}
+          onChange={(e) => setPasteText(e.target.value)}
+          rows={6}
+          placeholder={`Ayşe Yılmaz\nMehmet Kaya\n1. Elif Demir\nBurak Şen, ayse@mail.com`}
+        />
+        {importRows.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-gray-700">
+                <strong>{importRows.length}</strong> isim bulundu,{" "}
+                <strong>{selectedImportCount}</strong> seçili
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    setImportRows((rows) => rows.map((r) => ({ ...r, selected: !r.duplicate })))
+                  }
+                >
+                  Tümünü Seç
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleBulkImport}
+                  disabled={importing || selectedImportCount === 0}
+                >
+                  {importing ? "Ekleniyor..." : `${selectedImportCount} Personeli Ekle`}
+                </Button>
+              </div>
+            </div>
+            <div className="border border-gray-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    {["", "Kod", "Ad", "Soyad", "Durum"].map((h) => (
+                      <th
+                        key={h || "sel"}
+                        className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {importRows.map((row) => (
+                    <tr key={row.id} className={row.duplicate ? "bg-amber-50" : undefined}>
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={row.selected}
+                          disabled={row.duplicate}
+                          onChange={(e) => updateImportRow(row.id, { selected: e.target.checked })}
+                          className="rounded text-blue-600"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          value={row.code}
+                          onChange={(e) => updateImportRow(row.id, { code: e.target.value })}
+                          className="w-20 border border-gray-200 rounded px-2 py-1 text-xs font-mono"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          value={row.firstName}
+                          onChange={(e) => updateImportRow(row.id, { firstName: e.target.value })}
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-sm"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          value={row.lastName}
+                          onChange={(e) => updateImportRow(row.id, { lastName: e.target.value })}
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-sm"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {row.duplicate ? (
+                          <span className="text-amber-700">Zaten kayıtlı</span>
+                        ) : (
+                          <span className="text-green-700">Yeni</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {pasteText.trim() && importRows.length === 0 && (
+          <p className="text-sm text-amber-700">
+            Geçerli isim bulunamadı. Her satırda en az ad ve soyad olmalıdır.
+          </p>
+        )}
+        {importError && <p className="text-sm text-red-600">{importError}</p>}
+        {importMessage && <p className="text-sm text-green-700">{importMessage}</p>}
       </div>
 
       {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}

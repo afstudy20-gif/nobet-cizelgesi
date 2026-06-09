@@ -12,6 +12,17 @@ export const PersonCreateSchema = z.object({
 });
 export const PersonUpdateSchema = PersonCreateSchema.partial();
 
+export const PersonBulkItemSchema = z.object({
+  code: z.string().min(1).max(20).optional(),
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
+  isActive: z.boolean().default(true),
+});
+
+export const PersonBulkCreateSchema = z.object({
+  people: z.array(PersonBulkItemSchema).min(1).max(200),
+});
+
 // ─── Location ────────────────────────────────────────────────────────────────
 export const LocationCreateSchema = z.object({
   code: z.string().min(1).max(20),
