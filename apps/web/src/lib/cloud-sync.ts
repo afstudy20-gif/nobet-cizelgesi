@@ -11,7 +11,7 @@ declare global {
   }
 }
 
-const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '866965837196-e30js8ltie1pirn0ohuv3is2uhcecmd3.apps.googleusercontent.com';
+const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '866965837196-pu23906a91os844d1g1k4gsqcesphcrt.apps.googleusercontent.com';
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
