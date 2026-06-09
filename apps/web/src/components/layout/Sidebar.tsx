@@ -15,30 +15,41 @@ import {
 } from "lucide-react";
 
 import { CloudSync } from "./CloudSync";
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { useI18n, useNavItems } from "@/i18n/I18nProvider";
 
-const nav = [
-  { href: "/", label: "Genel Bakış", icon: LayoutDashboard },
-  { href: "/people", label: "Personel", icon: Users },
-  { href: "/locations", label: "Çalışma Yerleri", icon: MapPin },
-  { href: "/shifts", label: "Vardiya Şablonları", icon: Clock },
-  { href: "/coverage-rules", label: "Nöbet İhtiyaçları", icon: Shield },
-  { href: "/periods", label: "Dönem & Çizelge", icon: CalendarRange },
-  { href: "/schedule", label: "Çizelge Görünümü", icon: Calendar },
-  { href: "/export", label: "Dışa Aktar", icon: Download },
-  { href: "/calculator", label: "Hesap Araçları", icon: Calculator },
-];
+const iconByKey = {
+  overview: LayoutDashboard,
+  people: Users,
+  locations: MapPin,
+  shifts: Clock,
+  coverage: Shield,
+  periods: CalendarRange,
+  schedule: Calendar,
+  export: Download,
+  calculator: Calculator,
+} as const;
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { t } = useI18n();
+  const nav = useNavItems();
+
   return (
     <aside className="w-56 flex-shrink-0 bg-gray-900 text-gray-100 flex flex-col">
       <div className="px-4 py-5 border-b border-gray-700">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-0.5">drtr.uk</p>
-        <h1 className="text-base font-bold leading-tight">Nöbet Çizelgesi</h1>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-0.5">drtr.uk</p>
+            <h1 className="text-base font-bold leading-tight">{t("app.title")}</h1>
+          </div>
+          <LanguageSwitcher />
+        </div>
         <CloudSync />
       </div>
       <nav className="flex-1 py-4 space-y-0.5 px-2">
-        {nav.map(({ href, label, icon: Icon }) => {
+        {nav.map(({ href, label, key }) => {
+          const Icon = iconByKey[key];
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
             <Link

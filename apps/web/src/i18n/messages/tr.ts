@@ -1,0 +1,27 @@
+import type { Messages } from "../types";
+
+export const tr: Messages = {
+  "app.title": "Nöbet Çizelgesi",
+  "nav.overview": "Genel Bakış",
+  "nav.people": "Personel",
+  "nav.locations": "Çalışma Yerleri",
+  "nav.shifts": "Vardiya Şablonları",
+  "nav.coverage": "Nöbet İhtiyaçları",
+  "nav.periods": "Dönem & Çizelge",
+  "nav.schedule": "Çizelge Görünümü",
+  "nav.export": "Dışa Aktar",
+  "nav.calculator": "Hesap Araçları",
+  "lang.switch": "Dil",
+  "dashboard.title": "Genel Bakış",
+  "dashboard.activePeople": "Aktif Personel",
+  "dashboard.locations": "Çalışma Yerleri",
+  "dashboard.shiftTemplates": "Vardiya Şablonları",
+  "dashboard.activePeriods": "Aktif Dönemler",
+  "dashboard.unfilled": "{count} nöbet ataması boş kalmış.",
+  "dashboard.unfilledLink": "Çizelgeye git",
+  "dashboard.quickActions": "Hızlı Eylemler",
+  "dashboard.addPerson": "Personel Ekle",
+  "dashboard.createPeriod": "Dönem Oluştur",
+  "dashboard.viewSchedule": "Çizelge Görüntüle",
+  "dashboard.export": "Dışa Aktar",
+};

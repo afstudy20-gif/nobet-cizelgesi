@@ -42,7 +42,7 @@ export const ShiftTemplateUpdateSchema = ShiftTemplateCreateSchema.partial();
 export const CoverageRuleCreateSchema = z.object({
   locationId: z.string(),
   shiftTemplateId: z.string(),
-  ruleType: z.enum(["WEEKLY", "SPECIFIC_DATE", "DATE_RANGE"]),
+  ruleType: z.enum(["WEEKLY", "SPECIFIC_DATE", "DATE_RANGE", "ONE_DAY"]),
   weekdays: z.array(z.number().int().min(1).max(7)).optional().nullable(),
   specificDate: z.string().optional().nullable(),
   validFrom: z.string().optional().nullable(),
@@ -73,7 +73,7 @@ export const PersonWorkRuleSchema = z.object({
 
 // ─── AvailabilityRule ─────────────────────────────────────────────────────────
 export const AvailabilityRuleCreateSchema = z.object({
-  ruleType: z.enum(["WEEKLY", "DATE_RANGE", "ONE_DAY"]),
+  ruleType: z.enum(["WEEKLY", "DATE_RANGE", "ONE_DAY", "SPECIFIC_DATE"]),
   availabilityType: z.enum(["AVAILABLE", "UNAVAILABLE", "PREFERRED"]),
   weekdays: z.array(z.number().int().min(1).max(7)).optional().nullable(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
@@ -86,11 +86,16 @@ export const AvailabilityRuleCreateSchema = z.object({
 export const AvailabilityRuleUpdateSchema = AvailabilityRuleCreateSchema.partial();
 
 // ─── SchedulePeriod ──────────────────────────────────────────────────────────
-export const SchedulePeriodCreateSchema = z.object({
-  name: z.string().min(1).max(200),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
+export const SchedulePeriodCreateSchema = z
+  .object({
+    name: z.string().min(1).max(200),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  })
+  .refine((data) => data.endDate >= data.startDate, {
+    message: "endDate must be on or after startDate",
+    path: ["endDate"],
+  });
 
 // ─── Assignment patch ─────────────────────────────────────────────────────────
 export const AssignmentPatchSchema = z.object({

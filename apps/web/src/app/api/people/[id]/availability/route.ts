@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AvailabilityRuleCreateSchema } from "@nobet/shared";
+import { parseCalendarDate } from "@nobet/scheduler";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -42,15 +43,19 @@ export async function POST(req: NextRequest, { params }: Params) {
       );
     }
 
-    const { validFrom, validTo, weekdays, ...rest } = parsed.data;
+    const { validFrom, validTo, weekdays, ruleType, ...rest } = parsed.data;
+
+    const storedRuleType =
+      ruleType === "SPECIFIC_DATE" ? ("ONE_DAY" as const) : ruleType;
 
     const rule = await prisma.availabilityRule.create({
       data: {
         personId: id,
         ...rest,
+        ruleType: storedRuleType,
         weekdays: weekdays ?? [],
-        validFrom: validFrom ? new Date(validFrom) : null,
-        validTo: validTo ? new Date(validTo) : null,
+        validFrom: validFrom ? parseCalendarDate(validFrom) : null,
+        validTo: validTo ? parseCalendarDate(validTo) : null,
       },
       include: { location: true },
     });

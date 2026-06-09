@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SchedulePeriodCreateSchema } from "@nobet/shared";
+import { parseCalendarDate } from "@nobet/scheduler";
 
 export async function GET() {
   try {
@@ -47,8 +48,8 @@ export async function POST(req: NextRequest) {
     const period = await prisma.schedulePeriod.create({
       data: {
         name,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: parseCalendarDate(startDate),
+        endDate: parseCalendarDate(endDate),
       },
     });
 

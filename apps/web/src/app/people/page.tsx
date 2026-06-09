@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -32,7 +33,8 @@ const emptyForm = {
 
 type FormState = typeof emptyForm;
 
-export default function PeoplePage() {
+function PeoplePageInner() {
+  const searchParams = useSearchParams();
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +62,12 @@ export default function PeoplePage() {
   useEffect(() => {
     fetchPeople();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      openNew();
+    }
+  }, [searchParams]);
 
   function openNew() {
     setForm(emptyForm);
@@ -277,5 +285,13 @@ export default function PeoplePage() {
         </form>
       </Modal>
     </div>
+  );
+}
+
+export default function PeoplePage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-gray-500">Yükleniyor...</div>}>
+      <PeoplePageInner />
+    </Suspense>
   );
 }

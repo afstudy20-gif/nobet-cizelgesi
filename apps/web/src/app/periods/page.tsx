@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -49,7 +50,8 @@ function StatusBadge({ status }: { status: Period["status"] }) {
   );
 }
 
-export default function PeriodsPage() {
+function PeriodsPageInner() {
+  const searchParams = useSearchParams();
   const [periods, setPeriods] = useState<Period[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +90,12 @@ export default function PeriodsPage() {
   useEffect(() => {
     fetchPeriods();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      openNew();
+    }
+  }, [searchParams]);
 
   function openNew() {
     setForm(emptyForm);
@@ -330,5 +338,13 @@ export default function PeriodsPage() {
         </form>
       </Modal>
     </div>
+  );
+}
+
+export default function PeriodsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-gray-500">Yükleniyor...</div>}>
+      <PeriodsPageInner />
+    </Suspense>
   );
 }

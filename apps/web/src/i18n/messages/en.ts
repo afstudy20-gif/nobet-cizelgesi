@@ -1,0 +1,27 @@
+import type { Messages } from "../types";
+
+export const en: Messages = {
+  "app.title": "Duty Schedule",
+  "nav.overview": "Overview",
+  "nav.people": "Staff",
+  "nav.locations": "Locations",
+  "nav.shifts": "Shift Templates",
+  "nav.coverage": "Coverage Rules",
+  "nav.periods": "Periods & Schedule",
+  "nav.schedule": "Schedule View",
+  "nav.export": "Export",
+  "nav.calculator": "Calculator Tools",
+  "lang.switch": "Language",
+  "dashboard.title": "Overview",
+  "dashboard.activePeople": "Active Staff",
+  "dashboard.locations": "Locations",
+  "dashboard.shiftTemplates": "Shift Templates",
+  "dashboard.activePeriods": "Active Periods",
+  "dashboard.unfilled": "{count} duty assignments are unfilled.",
+  "dashboard.unfilledLink": "Go to schedule",
+  "dashboard.quickActions": "Quick Actions",
+  "dashboard.addPerson": "Add Staff",
+  "dashboard.createPeriod": "Create Period",
+  "dashboard.viewSchedule": "View Schedule",
+  "dashboard.export": "Export",
+};

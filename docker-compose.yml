@@ -26,6 +26,8 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:nobet123@postgres:5432/nobet_cizelgesi
       NODE_ENV: production
+      PORT: 3100
+      HOSTNAME: "0.0.0.0"
     depends_on:
       postgres:
         condition: service_healthy

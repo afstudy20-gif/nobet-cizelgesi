@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import ExcelJS from "exceljs";
+import { calendarDateKey } from "@nobet/scheduler";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -10,6 +11,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     const { searchParams } = new URL(req.url);
     const includeSummary = searchParams.get("includeSummary") !== "false";
     const includeConflicts = searchParams.get("includeConflicts") !== "false";
+    const view = searchParams.get("view") ?? "grid";
 
     // Load period
     const period = await prisma.schedulePeriod.findUnique({
@@ -59,87 +61,159 @@ export async function GET(req: NextRequest, { params }: Params) {
     workbook.creator = "Nöbet Çizelgesi Sistemi";
     workbook.created = new Date();
 
-    // ── Sheet 1: Plan ──────────────────────────────────────────────────────
-    const planSheet = workbook.addWorksheet("Plan");
-
-    // Unique dates
     const dateSet = new Set<string>();
     for (const a of assignments) {
-      dateSet.add(a.date.toISOString().split("T")[0]);
+      dateSet.add(calendarDateKey(a.date));
     }
     const dates = Array.from(dateSet).sort();
 
-    // Unique (locationId + shiftTemplateId) columns
-    type ColKey = { locationId: string; shiftTemplateId: string; label: string };
-    const colKeyMap = new Map<string, ColKey>();
-    for (const a of assignments) {
-      const key = `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`;
-      if (!colKeyMap.has(key)) {
-        colKeyMap.set(key, {
-          locationId: a.shiftRequirement.location.id,
-          shiftTemplateId: a.shiftRequirement.shiftTemplate.id,
-          label: `${a.shiftRequirement.location.name} / ${a.shiftRequirement.shiftTemplate.name}`,
-        });
+    const styleHeaderRow = (
+      sheet: ExcelJS.Worksheet,
+      headers: string[],
+      color: string
+    ) => {
+      const headerRow = sheet.addRow(headers);
+      headerRow.eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: color } };
+        cell.alignment = { vertical: "middle", horizontal: "center" };
+      });
+      sheet.views = [{ state: "frozen", ySplit: 1 }];
+      sheet.getColumn(1).width = 22;
+      headers.slice(1).forEach((_, i) => {
+        sheet.getColumn(i + 2).width = 18;
+      });
+    };
+
+    const planSheet = workbook.addWorksheet(
+      view === "person" ? "Kişi Bazlı" : view === "location" ? "Lokasyon Bazlı" : "Plan"
+    );
+
+    if (view === "person") {
+      const peopleMap = new Map<string, string>();
+      for (const a of assignments) {
+        if (a.person) peopleMap.set(a.person.id, a.person.fullName);
       }
-    }
-    const colKeys = Array.from(colKeyMap.values());
+      const people = Array.from(peopleMap.entries()).sort((a, b) =>
+        a[1].localeCompare(b[1], "tr")
+      );
 
-    // Header row
-    const planHeaders = ["Tarih", ...colKeys.map((c) => c.label)];
-    const planHeaderRow = planSheet.addRow(planHeaders);
-    planHeaderRow.eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
-      cell.alignment = { vertical: "middle", horizontal: "center" };
-      cell.border = {
-        bottom: { style: "thin", color: { argb: "FFBFDBFE" } },
-      };
-    });
-    planSheet.views = [{ state: "frozen", ySplit: 1 }];
+      const lookup: Record<string, Record<string, string[]>> = {};
+      for (const a of assignments) {
+        if (!a.person) continue;
+        const d = calendarDateKey(a.date);
+        const label = `${a.shiftRequirement.location.name} / ${a.shiftRequirement.shiftTemplate.code}`;
+        (lookup[a.person.id] ??= {})[d] ??= [];
+        lookup[a.person.id][d].push(label);
+      }
 
-    // Set column widths
-    planSheet.getColumn(1).width = 14;
-    colKeys.forEach((_, i) => {
-      planSheet.getColumn(i + 2).width = 24;
-    });
+      styleHeaderRow(
+        planSheet,
+        ["Personel", ...dates.map((d) => new Date(d + "T12:00:00Z").toLocaleDateString("tr-TR"))],
+        "FF059669"
+      );
 
-    // Build lookup: date -> colKey -> person names
-    const planLookup: Record<string, Record<string, string[]>> = {};
-    for (const a of assignments) {
-      const d = a.date.toISOString().split("T")[0];
-      const k = `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`;
-      if (!planLookup[d]) planLookup[d] = {};
-      if (!planLookup[d][k]) planLookup[d][k] = [];
-      planLookup[d][k].push(a.person?.fullName ?? "BOŞ");
-    }
+      people.forEach(([personId, name], rowIdx) => {
+        const row = planSheet.addRow([
+          name,
+          ...dates.map((d) => (lookup[personId]?.[d] ?? []).join(", ") || "—"),
+        ]);
+        const bgColor = rowIdx % 2 === 0 ? "FFFFFFFF" : "FFF0FDF4";
+        row.eachCell((cell) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bgColor } };
+        });
+      });
+    } else if (view === "location") {
+      const locMap = new Map<string, string>();
+      for (const a of assignments) {
+        locMap.set(
+          a.shiftRequirement.location.id,
+          a.shiftRequirement.location.name
+        );
+      }
+      const locations = Array.from(locMap.entries()).sort((a, b) =>
+        a[1].localeCompare(b[1], "tr")
+      );
 
-    // Data rows with alternating colors
-    dates.forEach((date, rowIdx) => {
-      const displayDate = new Date(date + "T00:00:00").toLocaleDateString("tr-TR");
-      const rowData = [
-        displayDate,
-        ...colKeys.map((col) => {
-          const key = `${col.locationId}__${col.shiftTemplateId}`;
-          const names = planLookup[date]?.[key];
-          if (!names || names.length === 0) return "BOŞ";
-          return names.join(", ");
-        }),
-      ];
+      const lookup: Record<string, Record<string, string[]>> = {};
+      for (const a of assignments) {
+        const locId = a.shiftRequirement.location.id;
+        const d = calendarDateKey(a.date);
+        const label = `${a.shiftRequirement.shiftTemplate.code}: ${a.person?.fullName ?? "BOŞ"}`;
+        (lookup[locId] ??= {})[d] ??= [];
+        lookup[locId][d].push(label);
+      }
 
-      const row = planSheet.addRow(rowData);
-      const bgColor = rowIdx % 2 === 0 ? "FFFFFFFF" : "FFF1F5F9";
+      styleHeaderRow(
+        planSheet,
+        ["Lokasyon", ...dates.map((d) => new Date(d + "T12:00:00Z").toLocaleDateString("tr-TR"))],
+        "FF7C3AED"
+      );
 
-      row.eachCell((cell, colNumber) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bgColor } };
-        cell.alignment = { vertical: "middle" };
-        if (colNumber > 1) {
-          const val = cell.value as string;
-          if (val === "BOŞ") {
+      locations.forEach(([locId, name], rowIdx) => {
+        const row = planSheet.addRow([
+          name,
+          ...dates.map((d) => (lookup[locId]?.[d] ?? []).join(", ") || "—"),
+        ]);
+        const bgColor = rowIdx % 2 === 0 ? "FFFFFFFF" : "FFF5F3FF";
+        row.eachCell((cell) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bgColor } };
+        });
+      });
+    } else {
+      type ColKey = { locationId: string; shiftTemplateId: string; label: string };
+      const colKeyMap = new Map<string, ColKey>();
+      for (const a of assignments) {
+        const key = `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`;
+        if (!colKeyMap.has(key)) {
+          colKeyMap.set(key, {
+            locationId: a.shiftRequirement.location.id,
+            shiftTemplateId: a.shiftRequirement.shiftTemplate.id,
+            label: `${a.shiftRequirement.location.name} / ${a.shiftRequirement.shiftTemplate.name}`,
+          });
+        }
+      }
+      const colKeys = Array.from(colKeyMap.values());
+
+      styleHeaderRow(
+        planSheet,
+        ["Tarih", ...colKeys.map((c) => c.label)],
+        "FF2563EB"
+      );
+      planSheet.getColumn(1).width = 14;
+      colKeys.forEach((_, i) => {
+        planSheet.getColumn(i + 2).width = 24;
+      });
+
+      const planLookup: Record<string, Record<string, string[]>> = {};
+      for (const a of assignments) {
+        const d = calendarDateKey(a.date);
+        const k = `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`;
+        (planLookup[d] ??= {})[k] ??= [];
+        planLookup[d][k].push(a.person?.fullName ?? "BOŞ");
+      }
+
+      dates.forEach((date, rowIdx) => {
+        const displayDate = new Date(date + "T12:00:00Z").toLocaleDateString("tr-TR");
+        const row = planSheet.addRow([
+          displayDate,
+          ...colKeys.map((col) => {
+            const key = `${col.locationId}__${col.shiftTemplateId}`;
+            const names = planLookup[date]?.[key];
+            if (!names || names.length === 0) return "BOŞ";
+            return names.join(", ");
+          }),
+        ]);
+        const bgColor = rowIdx % 2 === 0 ? "FFFFFFFF" : "FFF1F5F9";
+        row.eachCell((cell, colNumber) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bgColor } };
+          cell.alignment = { vertical: "middle" };
+          if (colNumber > 1 && cell.value === "BOŞ") {
             cell.font = { color: { argb: "FFDC2626" }, italic: true };
           }
-        }
+        });
       });
-    });
+    }
 
     // ── Sheet 2: Kişi Özeti (if includeSummary) ───────────────────────────
     if (includeSummary) {

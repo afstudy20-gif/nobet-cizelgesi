@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Modal } from "@/components/ui/Modal";
+import { calendarDateKey } from "@nobet/scheduler";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -187,7 +188,7 @@ function TableView({ assignments, onCellClick, onToggleLock, lockingIds }: Table
   const colKeySet = new Set<string>();
 
   for (const a of assignments) {
-    dateSet.add(a.date.split("T")[0]);
+    dateSet.add(calendarDateKey(new Date(a.date)));
     colKeySet.add(
       `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`
     );
@@ -206,7 +207,7 @@ function TableView({ assignments, onCellClick, onToggleLock, lockingIds }: Table
   // Build lookup: date -> colKey -> assignments[]
   const lookup: Record<string, Record<string, Assignment[]>> = {};
   for (const a of assignments) {
-    const d = a.date.split("T")[0];
+    const d = calendarDateKey(new Date(a.date));
     const k = `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`;
     if (!lookup[d]) lookup[d] = {};
     if (!lookup[d][k]) lookup[d][k] = [];
@@ -303,7 +304,7 @@ function PersonView({ assignments }: PersonViewProps) {
   const peopleMap = new Map<string, Person>();
 
   for (const a of assignments) {
-    dateSet.add(a.date.split("T")[0]);
+    dateSet.add(calendarDateKey(new Date(a.date)));
     if (a.person) peopleMap.set(a.person.id, a.person);
   }
 
@@ -316,7 +317,7 @@ function PersonView({ assignments }: PersonViewProps) {
   const lookup: Record<string, Record<string, string[]>> = {};
   for (const a of assignments) {
     if (!a.person) continue;
-    const d = a.date.split("T")[0];
+    const d = calendarDateKey(new Date(a.date));
     if (!lookup[a.person.id]) lookup[a.person.id] = {};
     if (!lookup[a.person.id][d]) lookup[a.person.id][d] = [];
     lookup[a.person.id][d].push(a.shiftRequirement.shiftTemplate.code);
@@ -375,7 +376,7 @@ function CalendarView({ assignments }: CalendarViewProps) {
   // Group assignments by day (YYYY-MM-DD)
   const byDay = new Map<string, Assignment[]>();
   for (const a of assignments) {
-    const d = a.date.split("T")[0];
+    const d = calendarDateKey(new Date(a.date));
     if (!byDay.has(d)) byDay.set(d, []);
     byDay.get(d)!.push(a);
   }

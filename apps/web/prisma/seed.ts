@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { parseCalendarDate } from "@nobet/scheduler";
 
 const prisma = new PrismaClient();
 
@@ -125,11 +126,25 @@ async function main() {
     data: [
       { personId: people[0].id, ruleType: "WEEKLY", availabilityType: "AVAILABLE", weekdays: [1,2,3,4,5], startTime: "08:00", endTime: "16:00" },
       { personId: people[0].id, ruleType: "WEEKLY", availabilityType: "UNAVAILABLE", weekdays: [6,7] },
-      { personId: people[0].id, ruleType: "DATE_RANGE", availabilityType: "UNAVAILABLE", validFrom: new Date("2026-04-10"), validTo: new Date("2026-04-12"), notes: "Yıllık izin" },
+      { personId: people[0].id, ruleType: "DATE_RANGE", availabilityType: "UNAVAILABLE", validFrom: parseCalendarDate("2026-04-10"), validTo: parseCalendarDate("2026-04-12"), notes: "Yıllık izin" },
       { personId: people[1].id, ruleType: "WEEKLY", availabilityType: "AVAILABLE", weekdays: [1,2,3,4,5,6,7], startTime: "16:00", endTime: "23:59" },
       { personId: people[2].id, ruleType: "WEEKLY", availabilityType: "AVAILABLE", weekdays: [1,3,5], startTime: "08:00", endTime: "16:00" },
       { personId: people[3].id, ruleType: "WEEKLY", availabilityType: "AVAILABLE", weekdays: [1,2,3,4,5,6,7], startTime: "00:00", endTime: "23:59" },
     ],
+  });
+
+  // Demo schedule period (first week of June 2026)
+  await prisma.schedulePeriod.upsert({
+    where: { id: "seed-period-haziran-2026" },
+    update: {},
+    create: {
+      id: "seed-period-haziran-2026",
+      name: "Haziran 2026 — Demo Hafta",
+      startDate: parseCalendarDate("2026-06-01"),
+      endDate: parseCalendarDate("2026-06-07"),
+      status: "DRAFT",
+      generationNotes: "Demo dönem — gereksinim ve çizelge oluşturmayı deneyin.",
+    },
   });
 
   console.log("Seed complete.");

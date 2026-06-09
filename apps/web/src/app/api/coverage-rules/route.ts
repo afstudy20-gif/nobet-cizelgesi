@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CoverageRuleCreateSchema } from "@nobet/shared";
+import { parseCalendarDate } from "@nobet/scheduler";
 
 export async function GET(req: NextRequest) {
   try {
@@ -45,15 +46,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { specificDate, validFrom, validTo, weekdays, ...rest } = parsed.data;
+    const { specificDate, validFrom, validTo, weekdays, ruleType, ...rest } =
+      parsed.data;
+
+    const storedRuleType =
+      ruleType === "ONE_DAY" ? ("ONE_DAY" as const) : ruleType;
 
     const rule = await prisma.coverageRule.create({
       data: {
         ...rest,
+        ruleType: storedRuleType,
         weekdays: weekdays ?? [],
-        specificDate: specificDate != null ? new Date(specificDate) : null,
-        validFrom: validFrom != null ? new Date(validFrom) : null,
-        validTo: validTo != null ? new Date(validTo) : null,
+        specificDate:
+          specificDate != null ? parseCalendarDate(specificDate) : null,
+        validFrom: validFrom != null ? parseCalendarDate(validFrom) : null,
+        validTo: validTo != null ? parseCalendarDate(validTo) : null,
       },
     });
     return NextResponse.json(rule, { status: 201 });

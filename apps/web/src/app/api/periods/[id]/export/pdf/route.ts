@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { calendarDateKey } from "@nobet/scheduler";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -22,6 +23,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     const { searchParams } = new URL(req.url);
     const includeSummary = searchParams.get("includeSummary") !== "false";
     const includeConflicts = searchParams.get("includeConflicts") !== "false";
+    const view = searchParams.get("view") ?? "grid";
 
     const period = await prisma.schedulePeriod.findUnique({
       where: { id: periodId },
@@ -54,10 +56,16 @@ export async function GET(req: NextRequest, { params }: Params) {
 
     const startDateStr = period.startDate.toLocaleDateString("tr-TR");
     const endDateStr = period.endDate.toLocaleDateString("tr-TR");
+    const viewLabel =
+      view === "person"
+        ? "Kişi Bazlı"
+        : view === "location"
+          ? "Lokasyon Bazlı"
+          : "Izgara";
 
     // ── Grid: dates × (location / shift) ──────────────────────────────────
     const dateSet = new Set<string>();
-    for (const a of assignments) dateSet.add(a.date.toISOString().split("T")[0]);
+    for (const a of assignments) dateSet.add(calendarDateKey(a.date));
     const dates = Array.from(dateSet).sort();
 
     type ColKey = { key: string; label: string };
@@ -75,7 +83,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
     const planLookup: Record<string, Record<string, string[]>> = {};
     for (const a of assignments) {
-      const d = a.date.toISOString().split("T")[0];
+      const d = calendarDateKey(a.date);
       const k = `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`;
       (planLookup[d] ??= {})[k] ??= [];
       planLookup[d][k].push(a.person?.fullName ?? "BOŞ");
@@ -210,6 +218,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     <strong>Dönem:</strong> ${esc(startDateStr)} – ${esc(endDateStr)}
     &nbsp;|&nbsp; <strong>Toplam Atama:</strong> ${assignments.length}
     &nbsp;|&nbsp; <strong>Boş:</strong> ${unfilled.length}
+    &nbsp;|&nbsp; <strong>Görünüm:</strong> ${esc(viewLabel)}
   </div>
 
   <h2>Nöbet Planı</h2>
