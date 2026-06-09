@@ -16,9 +16,14 @@ export async function POST(req: NextRequest, { params }: Params) {
       );
     }
 
-    if (template.format !== "EXCEL") {
+    if (template.format !== "EXCEL" && template.format !== "WORD") {
       return NextResponse.json(
-        { error: { code: "VALIDATION_ERROR", message: "Only Excel templates support file upload" } },
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Only Excel and Word templates support file upload",
+          },
+        },
         { status: 400 }
       );
     }
@@ -32,9 +37,17 @@ export async function POST(req: NextRequest, { params }: Params) {
       );
     }
 
-    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+    const lowerName = file.name.toLowerCase();
+    const allowedExt =
+      template.format === "EXCEL" ? ".xlsx" : ".docx";
+    if (!lowerName.endsWith(allowedExt)) {
       return NextResponse.json(
-        { error: { code: "VALIDATION_ERROR", message: "Only .xlsx files are supported" } },
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: `Only ${allowedExt} files are supported for ${template.format} templates`,
+          },
+        },
         { status: 400 }
       );
     }
