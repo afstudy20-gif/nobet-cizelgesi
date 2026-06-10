@@ -10,6 +10,11 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Modal } from "@/components/ui/Modal";
 
+interface PersonLocationRule {
+  locationId: string;
+  allowed: boolean;
+}
+
 interface Person {
   id: string;
   code: string;
@@ -20,6 +25,18 @@ interface Person {
   email: string | null;
   isActive: boolean;
   notes: string | null;
+  locationRules?: PersonLocationRule[];
+}
+
+function personMissingLocationAccess(
+  person: Person,
+  requiredLocationIds: string[]
+): boolean {
+  if (!person.isActive || requiredLocationIds.length === 0) return false;
+  const allowed = new Set(
+    (person.locationRules ?? []).filter((r) => r.allowed).map((r) => r.locationId)
+  );
+  return requiredLocationIds.some((id) => !allowed.has(id));
 }
 
 const emptyForm = {
@@ -60,6 +77,7 @@ function PeoplePageInner() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [requiredLocationIds, setRequiredLocationIds] = useState<string[]>([]);
 
   async function fetchPeople() {
     setLoading(true);
@@ -78,6 +96,25 @@ function PeoplePageInner() {
 
   useEffect(() => {
     fetchPeople();
+  }, []);
+
+  useEffect(() => {
+    async function loadCoverageLocations() {
+      try {
+        const res = await fetch("/api/coverage-rules");
+        if (!res.ok) return;
+        const rules: Array<{ locationId: string; isActive: boolean }> = await res.json();
+        const ids = [
+          ...new Set(
+            rules.filter((r) => r.isActive).map((r) => r.locationId)
+          ),
+        ];
+        setRequiredLocationIds(ids);
+      } catch {
+        // ignore
+      }
+    }
+    loadCoverageLocations();
   }, []);
 
   useEffect(() => {
@@ -392,15 +429,25 @@ function PeoplePageInner() {
                   <td className="px-4 py-3 text-gray-600">{person.phone ?? "—"}</td>
                   <td className="px-4 py-3 text-gray-600">{person.email ?? "—"}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        person.isActive
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-600"
-                      }`}
-                    >
-                      {person.isActive ? "Aktif" : "Pasif"}
-                    </span>
+                    <div className="flex flex-col gap-1 items-start">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          person.isActive
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {person.isActive ? "Aktif" : "Pasif"}
+                      </span>
+                      {personMissingLocationAccess(person, requiredLocationIds) && (
+                        <Link
+                          href={`/people/${person.id}`}
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200"
+                        >
+                          Lokasyon izni eksik
+                        </Link>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">

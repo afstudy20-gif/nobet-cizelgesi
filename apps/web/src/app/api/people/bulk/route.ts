@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PersonBulkCreateSchema, suggestPersonCodes } from "@nobet/shared";
 import { prisma } from "@/lib/prisma";
+import { grantDefaultLocationRulesForPeople } from "@/lib/person-location-defaults";
 
 export async function POST(req: NextRequest) {
   try {
@@ -83,6 +84,8 @@ export async function POST(req: NextRequest) {
     const created = await prisma.$transaction(
       toCreate.map((data) => prisma.person.create({ data }))
     );
+
+    await grantDefaultLocationRulesForPeople(created.map((p) => p.id));
 
     return NextResponse.json(
       {

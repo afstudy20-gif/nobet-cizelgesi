@@ -36,6 +36,11 @@ type GenerateResult = {
 
 type ToastMessage = { id: string; text: string; type: "success" | "error" };
 
+type SetupReadiness = {
+  ready: boolean;
+  blockers: string[];
+};
+
 function StatusBadge({ status }: { status: Period["status"] }) {
   const map: Record<Period["status"], { label: string; className: string }> = {
     DRAFT: { label: "Taslak", className: "bg-gray-100 text-gray-700" },
@@ -65,6 +70,7 @@ function PeriodsPageInner() {
   const [generateResults, setGenerateResults] = useState<Record<string, GenerateResult>>({});
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [readiness, setReadiness] = useState<SetupReadiness | null>(null);
 
   function addToast(text: string, type: "success" | "error") {
     const id = Math.random().toString(36).slice(2);
@@ -89,6 +95,18 @@ function PeriodsPageInner() {
 
   useEffect(() => {
     fetchPeriods();
+  }, []);
+
+  useEffect(() => {
+    async function loadReadiness() {
+      try {
+        const res = await fetch("/api/setup/readiness");
+        if (res.ok) setReadiness(await res.json());
+      } catch {
+        // ignore
+      }
+    }
+    loadReadiness();
   }, []);
 
   useEffect(() => {
@@ -150,6 +168,20 @@ function PeriodsPageInner() {
 
   async function handleGenerate(period: Period) {
     if (generatingIds.has(period.id)) return;
+
+    if (readiness && !readiness.ready) {
+      addToast(readiness.blockers.join(" "), "error");
+      return;
+    }
+
+    const hasExisting =
+      period._count.assignments > 0 || period._count.requirements > 0;
+    if (hasExisting) {
+      const ok = window.confirm(
+        `"${period.name}" için çizelge yeniden üretilecek. Kilitli olmayan atamalar silinir. Devam edilsin mi?`
+      );
+      if (!ok) return;
+    }
 
     setGeneratingIds((prev) => new Set(prev).add(period.id));
     setGenerateResults((prev) => ({ ...prev, [period.id]: null }));
@@ -217,6 +249,17 @@ function PeriodsPageInner() {
         <Button onClick={openNew}>+ Yeni Dönem</Button>
       </div>
 
+      {readiness && !readiness.ready && (
+        <div className="mb-4 p-4 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-900">
+          <p className="font-medium mb-1">Çizelge üretilemez — önce kurulumu tamamlayın:</p>
+          <ul className="list-disc list-inside space-y-0.5">
+            {readiness.blockers.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -274,7 +317,12 @@ function PeriodsPageInner() {
                         <Button
                           variant="secondary"
                           size="sm"
-                          disabled={isGenerating}
+                          disabled={isGenerating || readiness?.ready === false}
+                          title={
+                            readiness && !readiness.ready
+                              ? readiness.blockers.join(" ")
+                              : undefined
+                          }
                           onClick={() => handleGenerate(period)}
                         >
                           {isGenerating ? "Oluşturuluyor..." : "Çizelge Oluştur"}

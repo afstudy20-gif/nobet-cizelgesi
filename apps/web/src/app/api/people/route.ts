@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { grantDefaultLocationRules } from "@/lib/person-location-defaults";
 import { PersonCreateSchema } from "@nobet/shared";
 
 export async function GET() {
@@ -53,7 +54,17 @@ export async function POST(req: NextRequest) {
       data: { firstName, lastName, fullName, ...rest },
     });
 
-    return NextResponse.json(person, { status: 201 });
+    await grantDefaultLocationRules(person.id);
+
+    const withRules = await prisma.person.findUnique({
+      where: { id: person.id },
+      include: {
+        workRule: true,
+        locationRules: { include: { location: true } },
+      },
+    });
+
+    return NextResponse.json(withRules ?? person, { status: 201 });
   } catch (err) {
     console.error("[POST /api/people]", err);
     return NextResponse.json(

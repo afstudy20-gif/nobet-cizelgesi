@@ -1,8 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { Users, MapPin, Clock, CalendarRange, AlertTriangle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Users, MapPin, Clock, CalendarRange, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useI18n } from "@/i18n/I18nProvider";
+import { Button } from "@/components/ui/Button";
+import type { SetupReadiness } from "@/lib/setup-readiness";
 
 type DashboardStats = {
   people: number;
@@ -12,8 +16,37 @@ type DashboardStats = {
   unfilled: number;
 };
 
-export function DashboardContent({ stats }: { stats: DashboardStats }) {
+const SETUP_LABEL_KEYS = {
+  people: "dashboard.setupPeople",
+  locations: "dashboard.setupLocations",
+  shifts: "dashboard.setupShifts",
+  coverage: "dashboard.setupCoverage",
+  locationAccess: "dashboard.setupLocationAccess",
+} as const;
+
+export function DashboardContent({
+  stats,
+  readiness,
+}: {
+  stats: DashboardStats;
+  readiness: SetupReadiness;
+}) {
   const { t } = useI18n();
+  const router = useRouter();
+  const [backfilling, setBackfilling] = useState(false);
+
+  async function handleBackfillLocationAccess() {
+    setBackfilling(true);
+    try {
+      const res = await fetch("/api/people/backfill-location-access", { method: "POST" });
+      if (!res.ok) throw new Error("backfill failed");
+      router.refresh();
+    } catch {
+      // refresh anyway on next navigation
+    } finally {
+      setBackfilling(false);
+    }
+  }
 
   const cards = [
     {
@@ -57,6 +90,63 @@ export function DashboardContent({ stats }: { stats: DashboardStats }) {
     <div>
       <div className="page-header">
         <h1 className="page-title">{t("dashboard.title")}</h1>
+      </div>
+
+      <div className="card card-body mb-6">
+        <div className="flex items-start gap-3 mb-4">
+          {readiness.ready ? (
+            <CheckCircle2 size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
+          ) : (
+            <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          )}
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">{t("dashboard.setupTitle")}</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              {readiness.ready ? t("dashboard.setupReady") : t("dashboard.setupNotReady")}
+            </p>
+          </div>
+        </div>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {readiness.items.map((item) => {
+            const labelKey = SETUP_LABEL_KEYS[item.key as keyof typeof SETUP_LABEL_KEYS];
+            return (
+              <li key={item.key}>
+                <Link
+                  href={item.href}
+                  className={`flex items-center justify-between gap-2 px-3 py-2 rounded-md border text-sm transition-colors ${
+                    item.ok
+                      ? "border-green-200 bg-green-50 text-green-900 hover:bg-green-100"
+                      : "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                  }`}
+                >
+                  <span>{labelKey ? t(labelKey) : item.key}</span>
+                  <span className="font-medium">{item.ok ? "✓" : "—"}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+        {!readiness.ready && readiness.blockers.length > 0 && (
+          <ul className="mt-3 text-sm text-amber-800 list-disc list-inside space-y-1">
+            {readiness.blockers.map((blocker) => (
+              <li key={blocker}>{blocker}</li>
+            ))}
+          </ul>
+        )}
+        {readiness.peopleWithoutLocationAccess > 0 && (
+          <div className="mt-4">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={backfilling}
+              onClick={handleBackfillLocationAccess}
+            >
+              {backfilling
+                ? "İzinler ekleniyor..."
+                : `Eksik lokasyon izinlerini tamamla (${readiness.peopleWithoutLocationAccess} personel)`}
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

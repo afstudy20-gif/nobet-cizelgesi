@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
+import { getSetupReadiness } from "@/lib/setup-readiness";
 import { DashboardContent } from "@/components/dashboard/DashboardContent";
 
 async function getStats() {
@@ -15,6 +16,6 @@ async function getStats() {
 }
 
 export default async function DashboardPage() {
-  const stats = await getStats();
-  return <DashboardContent stats={stats} />;
+  const [stats, readiness] = await Promise.all([getStats(), getSetupReadiness()]);
+  return <DashboardContent stats={stats} readiness={readiness} />;
 }

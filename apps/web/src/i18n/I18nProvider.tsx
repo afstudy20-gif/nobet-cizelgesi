@@ -78,7 +78,6 @@ export function useNavItems() {
     { href: "/periods", label: t("nav.periods"), key: "periods" },
     { href: "/schedule", label: t("nav.schedule"), key: "schedule" },
     { href: "/export", label: t("nav.export"), key: "export" },
-    { href: "/calculator", label: t("nav.calculator"), key: "calculator" },
   ] as const;
 }
 
