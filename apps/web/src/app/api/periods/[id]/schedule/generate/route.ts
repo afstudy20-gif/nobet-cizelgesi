@@ -21,6 +21,7 @@ type ShiftTemplate = {
   endTime: string;
   crossesMidnight: boolean;
   isNightShift: boolean;
+  isOnCall: boolean;
   minimumRestHoursAfter: number;
 };
 
@@ -29,6 +30,7 @@ type Requirement = {
   date: Date;
   requiredHeadcount: number;
   locationId: string;
+  roleRequirements: unknown;
   shiftTemplate: ShiftTemplate;
 };
 
@@ -47,6 +49,7 @@ type WorkRule = {
   maxAssignmentsPerPeriod: number | null;
   maxNightAssignmentsPerPeriod: number | null;
   maxWeekendAssignmentsPerPeriod: number | null;
+  maxOnCallAssignmentsPerPeriod: number | null;
   minRestHoursBetweenAssignments: number;
   allowBackToBackNightShift: boolean;
 } | null;
@@ -59,6 +62,7 @@ type LocationRule = {
 type Person = {
   id: string;
   isActive: boolean;
+  role: string;
   workRule: WorkRule;
   locationRules: LocationRule[];
   availabilityRules: AvailabilityRule[];
@@ -122,6 +126,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
       startDateTime: Date;
       endDateTime: Date;
       isNightShift: boolean;
+      isOnCall: boolean;
       locationId: string;
       date: Date;
     };
@@ -135,6 +140,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
           startDateTime: a.startDateTime,
           endDateTime: a.endDateTime,
           isNightShift: a.shiftRequirement.shiftTemplate.isNightShift,
+          isOnCall: a.shiftRequirement.shiftTemplate.isOnCall,
           locationId: a.shiftRequirement.locationId,
           date: startOfDay(a.startDateTime),
         }));
@@ -147,12 +153,14 @@ export async function POST(_req: NextRequest, { params }: Params) {
       date: r.date,
       requiredHeadcount: r.requiredHeadcount,
       locationId: r.locationId,
+      roleRequirements: r.roleRequirements,
       shiftTemplate: {
         id: r.shiftTemplate.id,
         startTime: r.shiftTemplate.startTime,
         endTime: r.shiftTemplate.endTime,
         crossesMidnight: r.shiftTemplate.crossesMidnight,
         isNightShift: r.shiftTemplate.isNightShift,
+        isOnCall: r.shiftTemplate.isOnCall,
         minimumRestHoursAfter: r.shiftTemplate.minimumRestHoursAfter,
       },
     }));
@@ -175,6 +183,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
       people.set(p.id, {
         id: p.id,
         isActive: p.isActive,
+        role: p.role,
         workRule: p.workRule
           ? {
               maxAssignmentsPerPeriod: p.workRule.maxAssignmentsPerPeriod,
@@ -182,6 +191,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
                 p.workRule.maxNightAssignmentsPerPeriod,
               maxWeekendAssignmentsPerPeriod:
                 p.workRule.maxWeekendAssignmentsPerPeriod,
+              maxOnCallAssignmentsPerPeriod:
+                p.workRule.maxOnCallAssignmentsPerPeriod,
               minRestHoursBetweenAssignments:
                 p.workRule.minRestHoursBetweenAssignments,
               allowBackToBackNightShift: p.workRule.allowBackToBackNightShift,
@@ -213,6 +224,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
       date: Date;
       startDateTime: Date;
       endDateTime: Date;
+      role: string | null;
+      isOnCall: boolean;
       status: AssignmentStatus;
       isLocked: boolean;
       source: AssignmentSource;
@@ -231,6 +244,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     const periodAssignCount = new Map<string, number>();
     const periodNightCount = new Map<string, number>();
     const periodWeekendCount = new Map<string, number>();
+    const periodOnCallCount = new Map<string, number>();
 
     for (const [personId, assignments] of personAssignments.entries()) {
       periodAssignCount.set(personId, assignments.length);
@@ -241,6 +255,10 @@ export async function POST(_req: NextRequest, { params }: Params) {
       periodWeekendCount.set(
         personId,
         assignments.filter((a) => isWeekend(a.date)).length
+      );
+      periodOnCallCount.set(
+        personId,
+        assignments.filter((a) => a.isOnCall).length
       );
     }
 
@@ -259,7 +277,21 @@ export async function POST(_req: NextRequest, { params }: Params) {
       // to avoid double-assigning the same person
       const assignedToReq = new Set<string>();
 
-      for (let _slot = 0; _slot < req.requiredHeadcount; _slot++) {
+      const slotRoles: string[] = [];
+      const roleReqs = req.roleRequirements as Record<string, number> | null;
+      if (roleReqs && typeof roleReqs === "object" && Object.keys(roleReqs).length > 0) {
+        for (const [roleName, count] of Object.entries(roleReqs)) {
+          for (let i = 0; i < count; i++) {
+            slotRoles.push(roleName);
+          }
+        }
+      } else {
+        for (let i = 0; i < req.requiredHeadcount; i++) {
+          slotRoles.push("ANY");
+        }
+      }
+
+      for (const requiredRole of slotRoles) {
         // Build scored candidates
         type Candidate = { personId: string; score: number };
         const candidates: Candidate[] = [];
@@ -284,22 +316,25 @@ export async function POST(_req: NextRequest, { params }: Params) {
           // a. Must be active
           if (!person.isActive) continue;
 
-          // b. Must have allowed location rule
+          // b. Unvan/Rol eşleşmesi kontrolü
+          if (requiredRole !== "ANY" && person.role !== requiredRole) continue;
+
+          // c. Must have allowed location rule
           const locationAllowed = person.locationRules.some(
             (lr) => lr.locationId === req.locationId && lr.allowed
           );
           if (!locationAllowed) continue;
 
-          // c. Must not be UNAVAILABLE on this date/time
+          // d. Must not be UNAVAILABLE on this date/time
           if (isPersonUnavailable(person, req.date, reqStart, reqEnd)) continue;
 
-          // d. No overlapping assignment
+          // e. No overlapping assignment
           const hasOverlap = personTrack.some((a) =>
             overlaps(reqStart, reqEnd, a.startDateTime, a.endDateTime)
           );
           if (hasOverlap) continue;
 
-          // e. minRestHours from last assignment
+          // f. minRestHours from last assignment
           const minRest =
             person.workRule?.minRestHoursBetweenAssignments ?? 12;
           const tooClose = personTrack.some((a) => {
@@ -309,12 +344,12 @@ export async function POST(_req: NextRequest, { params }: Params) {
           });
           if (tooClose) continue;
 
-          // f. maxAssignmentsPerPeriod
+          // g. maxAssignmentsPerPeriod
           const maxAssign = person.workRule?.maxAssignmentsPerPeriod ?? null;
           const currentCount = periodAssignCount.get(personId) ?? 0;
           if (maxAssign !== null && currentCount >= maxAssign) continue;
 
-          // g. maxNightAssignmentsPerPeriod
+          // h. maxNightAssignmentsPerPeriod
           if (req.shiftTemplate.isNightShift) {
             const maxNight =
               person.workRule?.maxNightAssignmentsPerPeriod ?? null;
@@ -322,12 +357,20 @@ export async function POST(_req: NextRequest, { params }: Params) {
             if (maxNight !== null && currentNight >= maxNight) continue;
           }
 
-          // h. maxWeekendAssignmentsPerPeriod
+          // i. maxWeekendAssignmentsPerPeriod
           if (isWeekend(req.date)) {
             const maxWeekend =
               person.workRule?.maxWeekendAssignmentsPerPeriod ?? null;
             const currentWeekend = periodWeekendCount.get(personId) ?? 0;
             if (maxWeekend !== null && currentWeekend >= maxWeekend) continue;
+          }
+
+          // j. maxOnCallAssignmentsPerPeriod
+          if (req.shiftTemplate.isOnCall) {
+            const maxOnCall =
+              person.workRule?.maxOnCallAssignmentsPerPeriod ?? null;
+            const currentOnCall = periodOnCallCount.get(personId) ?? 0;
+            if (maxOnCall !== null && currentOnCall >= maxOnCall) continue;
           }
 
           // Passed all hard constraints — now score
@@ -403,6 +446,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
             date: req.date,
             startDateTime: reqStart,
             endDateTime: reqEnd,
+            role: requiredRole !== "ANY" ? requiredRole : null,
+            isOnCall: req.shiftTemplate.isOnCall,
             status: AssignmentStatus.ASSIGNED,
             isLocked: false,
             source: AssignmentSource.AUTO,
@@ -415,6 +460,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
             startDateTime: reqStart,
             endDateTime: reqEnd,
             isNightShift: req.shiftTemplate.isNightShift,
+            isOnCall: req.shiftTemplate.isOnCall,
             locationId: req.locationId,
             date: startOfDay(req.date),
           });
@@ -436,6 +482,12 @@ export async function POST(_req: NextRequest, { params }: Params) {
               (periodWeekendCount.get(best.personId) ?? 0) + 1
             );
           }
+          if (req.shiftTemplate.isOnCall) {
+            periodOnCallCount.set(
+              best.personId,
+              (periodOnCallCount.get(best.personId) ?? 0) + 1
+            );
+          }
 
           assignedToReq.add(best.personId);
           filled++;
@@ -449,6 +501,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
             date: req.date,
             startDateTime: reqStart,
             endDateTime: reqEnd,
+            role: requiredRole !== "ANY" ? requiredRole : null,
+            isOnCall: req.shiftTemplate.isOnCall,
             status: AssignmentStatus.UNFILLED,
             isLocked: false,
             source: AssignmentSource.AUTO,

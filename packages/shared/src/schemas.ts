@@ -7,6 +7,7 @@ export const PersonCreateSchema = z.object({
   lastName: z.string().min(1).max(100),
   phone: z.string().max(30).optional().nullable(),
   email: z.string().email().optional().nullable(),
+  role: z.string().default("ASISTAN"),
   isActive: z.boolean().default(true),
   notes: z.string().max(1000).optional().nullable(),
 });
@@ -16,6 +17,7 @@ export const PersonBulkItemSchema = z.object({
   code: z.string().min(1).max(20).optional(),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
+  role: z.string().default("ASISTAN"),
   isActive: z.boolean().default(true),
 });
 
@@ -44,6 +46,7 @@ export const ShiftTemplateCreateSchema = z.object({
   defaultLocationId: z.string().optional().nullable(),
   color: z.string().max(20).optional().nullable(),
   isNightShift: z.boolean().default(false),
+  isOnCall: z.boolean().default(false),
   minimumRestHoursAfter: z.number().int().min(0).default(12),
   isActive: z.boolean().default(true),
 });
@@ -59,6 +62,7 @@ export const CoverageRuleCreateSchema = z.object({
   validFrom: z.string().optional().nullable(),
   validTo: z.string().optional().nullable(),
   requiredHeadcount: z.number().int().min(1).default(1),
+  roleRequirements: z.any().optional().nullable(),
   priority: z.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
 });
@@ -77,6 +81,7 @@ export const PersonWorkRuleSchema = z.object({
   maxAssignmentsPerPeriod: z.number().int().min(0).optional().nullable(),
   maxNightAssignmentsPerPeriod: z.number().int().min(0).optional().nullable(),
   maxWeekendAssignmentsPerPeriod: z.number().int().min(0).optional().nullable(),
+  maxOnCallAssignmentsPerPeriod: z.number().int().min(0).optional().nullable(),
   maxConsecutiveDays: z.number().int().min(0).optional().nullable(),
   minRestHoursBetweenAssignments: z.number().int().min(0).default(12),
   allowBackToBackNightShift: z.boolean().default(false),

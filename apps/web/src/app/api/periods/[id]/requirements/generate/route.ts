@@ -65,6 +65,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
             shiftTemplateId: rule.shiftTemplateId,
             locationId: rule.locationId,
             requiredHeadcount: rule.requiredHeadcount,
+            roleRequirements: rule.roleRequirements ?? undefined,
             priority: rule.priority,
           },
         });

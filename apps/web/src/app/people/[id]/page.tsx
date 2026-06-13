@@ -23,6 +23,7 @@ interface WorkRule {
   maxAssignmentsPerPeriod: number | null;
   maxNightAssignmentsPerPeriod: number | null;
   maxWeekendAssignmentsPerPeriod: number | null;
+  maxOnCallAssignmentsPerPeriod: number | null;
   minRestHoursBetweenAssignments: number | null;
   allowBackToBackNightShift: boolean;
 }
@@ -54,6 +55,7 @@ interface Person {
   fullName: string;
   phone: string | null;
   email: string | null;
+  role: string;
   isActive: boolean;
   notes: string | null;
   workRule: WorkRule | null;
@@ -194,6 +196,7 @@ function GeneralTab({ person, onUpdated }: { person: Person; onUpdated: () => vo
     lastName: person.lastName,
     phone: person.phone ?? "",
     email: person.email ?? "",
+    role: person.role ?? "ASISTAN",
     isActive: person.isActive,
     notes: person.notes ?? "",
   });
@@ -230,6 +233,7 @@ function GeneralTab({ person, onUpdated }: { person: Person; onUpdated: () => vo
           {[
             ["Ad", person.firstName],
             ["Soyad", person.lastName],
+            ["Unvan / Rol", person.role === "UZMAN" ? "Uzman Doktor" : person.role === "HEMSIRE" ? "Hemşire" : "Asistan"],
             ["Telefon", person.phone ?? "—"],
             ["Email", person.email ?? "—"],
           ].map(([label, value]) => (
@@ -282,14 +286,25 @@ function GeneralTab({ person, onUpdated }: { person: Person; onUpdated: () => vo
           onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
         />
       </div>
-      <Select
-        label="Durum"
-        value={form.isActive ? "true" : "false"}
-        onChange={(e) => setForm((p) => ({ ...p, isActive: e.target.value === "true" }))}
-      >
-        <option value="true">Aktif</option>
-        <option value="false">Pasif</option>
-      </Select>
+      <div className="grid grid-cols-2 gap-4">
+        <Select
+          label="Unvan / Rol"
+          value={form.role}
+          onChange={(e) => setForm((p) => ({ ...p, role: e.target.value }))}
+        >
+          <option value="ASISTAN">Asistan</option>
+          <option value="UZMAN">Uzman Doktor</option>
+          <option value="HEMSIRE">Hemşire</option>
+        </Select>
+        <Select
+          label="Durum"
+          value={form.isActive ? "true" : "false"}
+          onChange={(e) => setForm((p) => ({ ...p, isActive: e.target.value === "true" }))}
+        >
+          <option value="true">Aktif</option>
+          <option value="false">Pasif</option>
+        </Select>
+      </div>
       <Textarea
         label="Notlar"
         value={form.notes}
@@ -323,6 +338,7 @@ function WorkRulesTab({
     maxAssignmentsPerPeriod: workRule?.maxAssignmentsPerPeriod?.toString() ?? "",
     maxNightAssignmentsPerPeriod: workRule?.maxNightAssignmentsPerPeriod?.toString() ?? "",
     maxWeekendAssignmentsPerPeriod: workRule?.maxWeekendAssignmentsPerPeriod?.toString() ?? "",
+    maxOnCallAssignmentsPerPeriod: workRule?.maxOnCallAssignmentsPerPeriod?.toString() ?? "",
     minRestHoursBetweenAssignments: workRule?.minRestHoursBetweenAssignments?.toString() ?? "",
     allowBackToBackNightShift: workRule?.allowBackToBackNightShift ?? false,
   });
@@ -343,6 +359,9 @@ function WorkRulesTab({
           : null,
         maxWeekendAssignmentsPerPeriod: form.maxWeekendAssignmentsPerPeriod
           ? Number(form.maxWeekendAssignmentsPerPeriod)
+          : null,
+        maxOnCallAssignmentsPerPeriod: form.maxOnCallAssignmentsPerPeriod
+          ? Number(form.maxOnCallAssignmentsPerPeriod)
           : null,
         minRestHoursBetweenAssignments: form.minRestHoursBetweenAssignments
           ? Number(form.minRestHoursBetweenAssignments)
@@ -371,6 +390,7 @@ function WorkRulesTab({
     { key: "maxAssignmentsPerPeriod", label: "Dönem Başına Maks. Görev" },
     { key: "maxNightAssignmentsPerPeriod", label: "Dönem Başına Maks. Gece Görevi" },
     { key: "maxWeekendAssignmentsPerPeriod", label: "Dönem Başına Maks. Hafta Sonu Görevi" },
+    { key: "maxOnCallAssignmentsPerPeriod", label: "Dönem Başına Maks. İcap (Yedek) Görevi" },
     { key: "minRestHoursBetweenAssignments", label: "Görevler Arası Min. Dinlenme (Saat)" },
   ];
 

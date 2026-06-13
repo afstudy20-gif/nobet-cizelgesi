@@ -13,7 +13,7 @@ import {
 const prisma = new PrismaClient();
 
 async function simulate() {
-  console.log("=== SIMULATION 2 STARTED ===");
+  console.log("=== SIMULATION 2 STARTED (50 People, Roles, On-Call) ===");
 
   // 1. Clean up database
   console.log("Cleaning up database...");
@@ -37,8 +37,17 @@ async function simulate() {
     const firstName = `Personel`;
     const lastName = `${i}`;
     const fullName = `${firstName} ${lastName}`;
+    
+    // Assign roles: 12 Uzman, 8 Hemsire, 30 Asistan
+    let role = "ASISTAN";
+    if (i <= 12) {
+      role = "UZMAN";
+    } else if (i <= 20) {
+      role = "HEMSIRE";
+    }
+
     const p = await prisma.person.create({
-      data: { code, firstName, lastName, fullName, isActive: true },
+      data: { code, firstName, lastName, fullName, role, isActive: true },
     });
     people.push(p);
   }
@@ -46,31 +55,30 @@ async function simulate() {
   // 3. Create Locations
   // 5 Polyclinics + 1 ICU + 2 Wards = 8 locations total
   console.log("Creating 8 locations...");
-  const locations = [];
+  const polyclinics = [];
   
   // 5 Polyclinics
   for (let i = 1; i <= 5; i++) {
     const loc = await prisma.location.create({
       data: { code: `POLI_${i}`, name: `Poliklinik ${i}`, isActive: true },
     });
-    locations.push(loc);
+    polyclinics.push(loc);
   }
   
   // 1 ICU (Yoğun Bakım)
   const icu = await prisma.location.create({
     data: { code: "ICU", name: "Yoğun Bakım", isActive: true },
   });
-  locations.push(icu);
   
   // 2 Wards (Servis 1, Servis 2)
   const ward1 = await prisma.location.create({
     data: { code: "WARD_1", name: "Servis 1", isActive: true },
   });
-  locations.push(ward1);
   const ward2 = await prisma.location.create({
     data: { code: "WARD_2", name: "Servis 2", isActive: true },
   });
-  locations.push(ward2);
+
+  const allLocations = [...polyclinics, icu, ward1, ward2];
 
   // 4. Create Shift Templates
   console.log("Creating shift templates...");
@@ -95,35 +103,102 @@ async function simulate() {
       startTime: "17:00",
       endTime: "08:00",
       crossesMidnight: true,
-      requiredHeadcount: 1,
+      requiredHeadcount: 2,
       isNightShift: true,
       minimumRestHoursAfter: 24,
       isActive: true,
     },
   });
 
+  const onCall = await prisma.shiftTemplate.create({
+    data: {
+      code: "ICAP",
+      name: "İcap Nöbeti (Yedek)",
+      startTime: "17:00",
+      endTime: "08:00",
+      crossesMidnight: true,
+      requiredHeadcount: 1,
+      isNightShift: false,
+      isOnCall: true,
+      minimumRestHoursAfter: 0,
+      isActive: true,
+    },
+  });
+
   // 5. Create Coverage Rules
   console.log("Creating coverage rules...");
-  // Gündüz rules: 5 Polyclinics, ICU, Wards 1 & 2 on weekdays (Monday-Friday)
-  for (const loc of locations) {
+  
+  // Weekday daytime rules (Monday-Friday):
+  // 5 Polyclinics: 1 Uzman each
+  for (const poly of polyclinics) {
     await prisma.coverageRule.create({
-      data: { locationId: loc.id, shiftTemplateId: gunduz.id, ruleType: "WEEKLY", weekdays: [1, 2, 3, 4, 5], requiredHeadcount: 1 },
+      data: { locationId: poly.id, shiftTemplateId: gunduz.id, ruleType: "WEEKLY", weekdays: [1, 2, 3, 4, 5], requiredHeadcount: 1, roleRequirements: { UZMAN: 1 } },
     });
   }
-  
-  // Akşam Nöbeti (NOBET) rules: 2 duties every day (1 ICU, 1 Ward 1 covers both)
-  // Let's configure 1 duty at ICU, and 1 duty at WARD_1 every day
+  // ICU Daytime: 1 Uzman
   await prisma.coverageRule.create({
-    data: { locationId: icu.id, shiftTemplateId: nobet.id, ruleType: "WEEKLY", weekdays: [1, 2, 3, 4, 5, 6, 7], requiredHeadcount: 1 },
+    data: { locationId: icu.id, shiftTemplateId: gunduz.id, ruleType: "WEEKLY", weekdays: [1, 2, 3, 4, 5], requiredHeadcount: 1, roleRequirements: { UZMAN: 1 } },
+  });
+  // Wards Daytime: 1 Asistan each
+  await prisma.coverageRule.create({
+    data: { locationId: ward1.id, shiftTemplateId: gunduz.id, ruleType: "WEEKLY", weekdays: [1, 2, 3, 4, 5], requiredHeadcount: 1, roleRequirements: { ASISTAN: 1 } },
   });
   await prisma.coverageRule.create({
-    data: { locationId: ward1.id, shiftTemplateId: nobet.id, ruleType: "WEEKLY", weekdays: [1, 2, 3, 4, 5, 6, 7], requiredHeadcount: 1 },
+    data: { locationId: ward2.id, shiftTemplateId: gunduz.id, ruleType: "WEEKLY", weekdays: [1, 2, 3, 4, 5], requiredHeadcount: 1, roleRequirements: { ASISTAN: 1 } },
+  });
+  
+  // Night Duty (NOBET) rules every day:
+  // ICU: 1 Uzman + 1 Asistan
+  await prisma.coverageRule.create({
+    data: {
+      locationId: icu.id,
+      shiftTemplateId: nobet.id,
+      ruleType: "WEEKLY",
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+      requiredHeadcount: 2,
+      roleRequirements: { UZMAN: 1, ASISTAN: 1 },
+    },
+  });
+  // Ward 1 (covers ward duty): 1 Asistan + 1 Hemşire
+  await prisma.coverageRule.create({
+    data: {
+      locationId: ward1.id,
+      shiftTemplateId: nobet.id,
+      ruleType: "WEEKLY",
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+      requiredHeadcount: 2,
+      roleRequirements: { ASISTAN: 1, HEMSIRE: 1 },
+    },
+  });
+
+  // On-Call (İcap) rules every day:
+  // ICU: 1 Uzman
+  await prisma.coverageRule.create({
+    data: {
+      locationId: icu.id,
+      shiftTemplateId: onCall.id,
+      ruleType: "WEEKLY",
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+      requiredHeadcount: 1,
+      roleRequirements: { UZMAN: 1 },
+    },
+  });
+  // Ward 1: 1 Asistan
+  await prisma.coverageRule.create({
+    data: {
+      locationId: ward1.id,
+      shiftTemplateId: onCall.id,
+      ruleType: "WEEKLY",
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+      requiredHeadcount: 1,
+      roleRequirements: { ASISTAN: 1 },
+    },
   });
 
   // 6. Set Location Rules (Allow everyone to work everywhere)
   console.log("Configuring location rules...");
   for (const p of people) {
-    for (const loc of locations) {
+    for (const loc of allLocations) {
       await prisma.personLocationRule.create({ data: { personId: p.id, locationId: loc.id, allowed: true } });
     }
   }
@@ -134,9 +209,10 @@ async function simulate() {
     await prisma.personWorkRule.create({
       data: {
         personId: p.id,
-        maxAssignmentsPerPeriod: 10,
-        maxNightAssignmentsPerPeriod: 4,
-        maxWeekendAssignmentsPerPeriod: 4,
+        maxAssignmentsPerPeriod: 12,
+        maxNightAssignmentsPerPeriod: 5,
+        maxWeekendAssignmentsPerPeriod: 5,
+        maxOnCallAssignmentsPerPeriod: 4, // Max 4 on-call duties
         minRestHoursBetweenAssignments: 12,
         allowBackToBackNightShift: false,
       },
@@ -170,6 +246,7 @@ async function simulate() {
           shiftTemplateId: rule.shiftTemplateId,
           locationId: rule.locationId,
           requiredHeadcount: rule.requiredHeadcount,
+          roleRequirements: rule.roleRequirements ?? undefined,
         },
       });
       reqCreated++;
@@ -198,6 +275,7 @@ async function simulate() {
     startDateTime: Date;
     endDateTime: Date;
     isNightShift: boolean;
+    isOnCall: boolean;
     locationId: string;
     date: Date;
   };
@@ -211,6 +289,7 @@ async function simulate() {
     id: string;
     date: Date;
     requiredHeadcount: number;
+    roleRequirements: any;
     locationId: string;
     shiftTemplate: {
       id: string;
@@ -218,6 +297,7 @@ async function simulate() {
       endTime: string;
       crossesMidnight: boolean;
       isNightShift: boolean;
+      isOnCall: boolean;
       minimumRestHoursAfter: number;
     };
   };
@@ -226,6 +306,7 @@ async function simulate() {
     id: r.id,
     date: r.date,
     requiredHeadcount: r.requiredHeadcount,
+    roleRequirements: r.roleRequirements,
     locationId: r.locationId,
     shiftTemplate: r.shiftTemplate,
   }));
@@ -256,11 +337,13 @@ async function simulate() {
   const periodAssignCount = new Map<string, number>();
   const periodNightCount = new Map<string, number>();
   const periodWeekendCount = new Map<string, number>();
+  const periodOnCallCount = new Map<string, number>();
 
   for (const person of rawPeople) {
     periodAssignCount.set(person.id, 0);
     periodNightCount.set(person.id, 0);
     periodWeekendCount.set(person.id, 0);
+    periodOnCallCount.set(person.id, 0);
   }
 
   for (const req of requirements) {
@@ -270,7 +353,21 @@ async function simulate() {
     let filled = 0;
     const assignedToReq = new Set<string>();
 
-    for (let slot = 0; slot < req.requiredHeadcount; slot++) {
+    const slotRoles: string[] = [];
+    const roleReqs = req.roleRequirements as Record<string, number> | null;
+    if (roleReqs && typeof roleReqs === "object" && Object.keys(roleReqs).length > 0) {
+      for (const [roleName, count] of Object.entries(roleReqs)) {
+        for (let i = 0; i < count; i++) {
+          slotRoles.push(roleName);
+        }
+      }
+    } else {
+      for (let i = 0; i < req.requiredHeadcount; i++) {
+        slotRoles.push("ANY");
+      }
+    }
+
+    for (const requiredRole of slotRoles) {
       const candidates = [];
       const allPersonIds = [...peopleMap.keys()];
       const totalPeople = allPersonIds.length;
@@ -282,6 +379,9 @@ async function simulate() {
 
         if (assignedToReq.has(personId)) continue;
         if (!person.isActive) continue;
+
+        // Unvan / Rol Kontrolü
+        if (requiredRole !== "ANY" && person.role !== requiredRole) continue;
 
         const locationAllowed = person.locationRules.some((lr: any) => lr.locationId === req.locationId && lr.allowed);
         if (!locationAllowed) continue;
@@ -315,14 +415,28 @@ async function simulate() {
           if (maxWeekend !== null && currentWeekend >= maxWeekend) continue;
         }
 
+        if (req.shiftTemplate.isOnCall) {
+          const maxOnCall = person.workRule?.maxOnCallAssignmentsPerPeriod ?? null;
+          const currentOnCall = periodOnCallCount.get(personId) ?? 0;
+          if (maxOnCall !== null && currentOnCall >= maxOnCall) continue;
+        }
+
         // Passed constraints - score
         let score = 100;
         const availMatch = getAvailabilityMatch(person, req.date, reqStart, reqEnd);
         if (availMatch === "preferred") score += 15;
         if (availMatch === "unpreferred") score -= 10;
 
-        if (currentCount < avgAssignments) score += 10;
-        if (currentCount > avgAssignments) score -= 20;
+        if (req.shiftTemplate.isOnCall) {
+          const currentOnCall = periodOnCallCount.get(personId) ?? 0;
+          const totalPeopleOnCall = allPersonIds.length;
+          const avgOnCall = totalPeopleOnCall > 0 ? [...periodOnCallCount.values()].reduce((s, v) => s + v, 0) / totalPeopleOnCall : 0;
+          if (currentOnCall < avgOnCall) score += 15;
+          if (currentOnCall > avgOnCall) score -= 20;
+        } else {
+          if (currentCount < avgAssignments) score += 10;
+          if (currentCount > avgAssignments) score -= 20;
+        }
 
         if (req.shiftTemplate.isNightShift && !(person.workRule?.allowBackToBackNightShift ?? false)) {
           const lastNight = personTrack
@@ -363,6 +477,8 @@ async function simulate() {
           date: req.date,
           startDateTime: reqStart,
           endDateTime: reqEnd,
+          role: requiredRole !== "ANY" ? requiredRole : null,
+          isOnCall: req.shiftTemplate.isOnCall,
           status: AssignmentStatus.ASSIGNED,
           isLocked: false,
           source: AssignmentSource.AUTO,
@@ -374,6 +490,7 @@ async function simulate() {
           startDateTime: reqStart,
           endDateTime: reqEnd,
           isNightShift: req.shiftTemplate.isNightShift,
+          isOnCall: req.shiftTemplate.isOnCall,
           locationId: req.locationId,
           date: startOfDay(req.date),
         });
@@ -385,6 +502,9 @@ async function simulate() {
         }
         if (isWeekend(req.date)) {
           periodWeekendCount.set(best.personId, (periodWeekendCount.get(best.personId) ?? 0) + 1);
+        }
+        if (req.shiftTemplate.isOnCall) {
+          periodOnCallCount.set(best.personId, (periodOnCallCount.get(best.personId) ?? 0) + 1);
         }
 
         assignedToReq.add(best.personId);
@@ -398,6 +518,8 @@ async function simulate() {
           date: req.date,
           startDateTime: reqStart,
           endDateTime: reqEnd,
+          role: requiredRole !== "ANY" ? requiredRole : null,
+          isOnCall: req.shiftTemplate.isOnCall,
           status: AssignmentStatus.UNFILLED,
           isLocked: false,
           source: AssignmentSource.AUTO,
@@ -445,9 +567,11 @@ async function simulate() {
   for (const [pId, count] of periodAssignCount.entries()) {
     if (printed++ >= 15) break;
     const p = peopleMap.get(pId);
+    const role = p.role;
     const nights = periodNightCount.get(pId) || 0;
     const weekends = periodWeekendCount.get(pId) || 0;
-    console.log(`- ${p.fullName}: Total=${count}, Nights=${nights}, Weekends=${weekends}`);
+    const onCalls = periodOnCallCount.get(pId) || 0;
+    console.log(`- ${p.fullName} (${role}): Total=${count}, Nights=${nights}, Weekends=${weekends}, OnCalls=${onCalls}`);
   }
   
   console.log("\n=== SIMULATION FINISHED SUCCESSFUL ===");

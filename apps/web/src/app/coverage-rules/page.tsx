@@ -33,6 +33,7 @@ interface CoverageRule {
   validFrom: string | null;
   validTo: string | null;
   requiredHeadcount: number;
+  roleRequirements: Record<string, number> | null;
   priority: number;
   isActive: boolean;
 }
@@ -66,6 +67,7 @@ const emptyForm = {
   validFrom: "",
   validTo: "",
   requiredHeadcount: 1,
+  roleRequirements: {} as Record<string, number>,
   priority: 0,
   isActive: true,
 };
@@ -127,6 +129,7 @@ export default function CoverageRulesPage() {
       validFrom: rule.validFrom ?? "",
       validTo: rule.validTo ?? "",
       requiredHeadcount: rule.requiredHeadcount,
+      roleRequirements: (rule.roleRequirements as Record<string, number> | null) ?? {},
       priority: rule.priority,
       isActive: rule.isActive,
     });
@@ -149,9 +152,22 @@ export default function CoverageRulesPage() {
     try {
       const url = editingId ? `/api/coverage-rules/${editingId}` : "/api/coverage-rules";
       const method = editingId ? "PATCH" : "POST";
+
+      let sumRoles = 0;
+      const roleReqsFiltered: Record<string, number> = {};
+      if (form.roleRequirements) {
+        for (const [r, c] of Object.entries(form.roleRequirements)) {
+          if (c > 0) {
+            roleReqsFiltered[r] = c;
+            sumRoles += c;
+          }
+        }
+      }
+
       const body = {
         ...form,
-        requiredHeadcount: Number(form.requiredHeadcount),
+        requiredHeadcount: sumRoles > 0 ? Math.max(Number(form.requiredHeadcount), sumRoles) : Number(form.requiredHeadcount),
+        roleRequirements: Object.keys(roleReqsFiltered).length > 0 ? roleReqsFiltered : null,
         priority: Number(form.priority),
         specificDate: form.specificDate || null,
         validFrom: form.validFrom || null,
@@ -270,7 +286,16 @@ export default function CoverageRulesPage() {
                   <td className="px-4 py-3 text-gray-900">{rule.shiftTemplate.name}</td>
                   <td className="px-4 py-3 text-gray-600">{RULE_TYPE_LABELS[rule.ruleType]}</td>
                   <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{formatDays(rule)}</td>
-                  <td className="px-4 py-3 text-gray-700 font-medium">{rule.requiredHeadcount}</td>
+                  <td className="px-4 py-3 text-gray-700 font-medium">
+                    <div>{rule.requiredHeadcount}</div>
+                    {rule.roleRequirements && typeof rule.roleRequirements === "object" && Object.keys(rule.roleRequirements).length > 0 && (
+                      <div className="text-xs text-gray-400 mt-0.5 font-normal">
+                        {Object.entries(rule.roleRequirements as Record<string, number>)
+                          .map(([r, c]) => `${r === "UZMAN" ? "Uzman" : r === "HEMSIRE" ? "Hemşire" : "Asistan"}: ${c}`)
+                          .join(", ")}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-gray-600">{rule.priority}</td>
                   <td className="px-4 py-3">
                     <span
@@ -425,6 +450,73 @@ export default function CoverageRulesPage() {
               <option value="true">Aktif</option>
               <option value="false">Pasif</option>
             </Select>
+          </div>
+
+          <div className="border-t border-gray-100 pt-4 mt-2">
+            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Unvan / Rol Detayları</h3>
+            <p className="text-xs text-gray-400 mb-3">
+              Nöbet yerinde bulunması gereken asgari uzman, asistan ve hemşire sayılarını belirleyin.
+              (Uzman + Asistan + Hemşire toplamı gerekli kişi sayısından fazla olamaz. Gerekirse gerekli kişi sayısı otomatik artırılır).
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              <Input
+                id="roleReqUzman"
+                label="Uzman Doktor Sayısı"
+                type="number"
+                min={0}
+                value={form.roleRequirements?.UZMAN ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : 0;
+                  setForm(prev => {
+                    const nextReq = { ...prev.roleRequirements };
+                    if (val === 0) {
+                      delete (nextReq as Record<string, number | undefined>).UZMAN;
+                    } else {
+                      nextReq.UZMAN = val;
+                    }
+                    return { ...prev, roleRequirements: nextReq };
+                  });
+                }}
+              />
+              <Input
+                id="roleReqAsistan"
+                label="Asistan Sayısı"
+                type="number"
+                min={0}
+                value={form.roleRequirements?.ASISTAN ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : 0;
+                  setForm(prev => {
+                    const nextReq = { ...prev.roleRequirements };
+                    if (val === 0) {
+                      delete (nextReq as Record<string, number | undefined>).ASISTAN;
+                    } else {
+                      nextReq.ASISTAN = val;
+                    }
+                    return { ...prev, roleRequirements: nextReq };
+                  });
+                }}
+              />
+              <Input
+                id="roleReqHemsire"
+                label="Hemşire Sayısı"
+                type="number"
+                min={0}
+                value={form.roleRequirements?.HEMSIRE ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : 0;
+                  setForm(prev => {
+                    const nextReq = { ...prev.roleRequirements };
+                    if (val === 0) {
+                      delete (nextReq as Record<string, number | undefined>).HEMSIRE;
+                    } else {
+                      nextReq.HEMSIRE = val;
+                    }
+                    return { ...prev, roleRequirements: nextReq };
+                  });
+                }}
+              />
+            </div>
           </div>
 
           {formError && <p className="text-sm text-red-600">{formError}</p>}

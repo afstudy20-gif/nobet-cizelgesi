@@ -23,6 +23,7 @@ interface Person {
   fullName: string;
   phone: string | null;
   email: string | null;
+  role: string;
   isActive: boolean;
   notes: string | null;
   locationRules?: PersonLocationRule[];
@@ -45,6 +46,7 @@ const emptyForm = {
   lastName: "",
   phone: "",
   email: "",
+  role: "ASISTAN",
   isActive: true,
   notes: "",
 };
@@ -137,6 +139,7 @@ function PeoplePageInner() {
       lastName: person.lastName,
       phone: person.phone ?? "",
       email: person.email ?? "",
+      role: person.role ?? "ASISTAN",
       isActive: person.isActive,
       notes: person.notes ?? "",
     });
@@ -404,7 +407,7 @@ function PeoplePageInner() {
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                {["Kod", "Ad Soyad", "Telefon", "Email", "Durum", "İşlemler"].map((h) => (
+                {["Kod", "Ad Soyad", "Unvan / Rol", "Telefon", "Email", "Durum", "İşlemler"].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
@@ -417,7 +420,7 @@ function PeoplePageInner() {
             <tbody className="bg-white divide-y divide-gray-200">
               {people.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
@@ -426,6 +429,19 @@ function PeoplePageInner() {
                 <tr key={person.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono text-gray-700">{person.code}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{person.fullName}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                        person.role === "UZMAN"
+                          ? "bg-purple-100 text-purple-800"
+                          : person.role === "HEMSIRE"
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-gray-100 text-gray-800"
+                      }`}
+                    >
+                      {person.role === "UZMAN" ? "Uzman" : person.role === "HEMSIRE" ? "Hemşire" : "Asistan"}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-gray-600">{person.phone ?? "—"}</td>
                   <td className="px-4 py-3 text-gray-600">{person.email ?? "—"}</td>
                   <td className="px-4 py-3">
@@ -476,7 +492,7 @@ function PeoplePageInner() {
         size="lg"
       >
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <Input
               id="code"
               label="Kod"
@@ -484,6 +500,18 @@ function PeoplePageInner() {
               onChange={(e) => setField("code", e.target.value)}
               required
             />
+            <div className="space-y-1">
+              <label className="block text-sm font-medium text-gray-700">Unvan / Rol</label>
+              <Select
+                id="role"
+                value={form.role}
+                onChange={(e) => setField("role", e.target.value)}
+              >
+                <option value="ASISTAN">Asistan</option>
+                <option value="UZMAN">Uzman Doktor</option>
+                <option value="HEMSIRE">Hemşire</option>
+              </Select>
+            </div>
             <div className="space-y-1">
               <label className="block text-sm font-medium text-gray-700">Durum</label>
               <Select

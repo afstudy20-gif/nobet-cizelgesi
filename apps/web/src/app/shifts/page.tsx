@@ -16,6 +16,7 @@ interface ShiftTemplate {
   crossesMidnight: boolean;
   requiredHeadcount: number;
   isNightShift: boolean;
+  isOnCall: boolean;
   minimumRestHoursAfter: number | null;
   color: string | null;
   isActive: boolean;
@@ -30,6 +31,7 @@ const emptyForm = {
   crossesMidnight: false,
   requiredHeadcount: 1,
   isNightShift: false,
+  isOnCall: false,
   minimumRestHoursAfter: "",
   color: "#3b82f6",
   isActive: true,
@@ -83,6 +85,7 @@ export default function ShiftsPage() {
       crossesMidnight: shift.crossesMidnight,
       requiredHeadcount: shift.requiredHeadcount,
       isNightShift: shift.isNightShift,
+      isOnCall: shift.isOnCall,
       minimumRestHoursAfter: shift.minimumRestHoursAfter?.toString() ?? "",
       color: shift.color ?? "#3b82f6",
       isActive: shift.isActive,
@@ -164,7 +167,7 @@ export default function ShiftsPage() {
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                {["Kod", "Ad", "Başlangıç", "Bitiş", "Gece Nöbeti", "Min Dinlenme (Saat)", "Durum", "İşlemler"].map(
+                {["Kod", "Ad", "Başlangıç", "Bitiş", "Gece Nöbeti", "İcap (Yedek)", "Min Dinlenme (Saat)", "Durum", "İşlemler"].map(
                   (h) => (
                     <th
                       key={h}
@@ -179,7 +182,7 @@ export default function ShiftsPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {shifts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
@@ -214,6 +217,17 @@ export default function ShiftsPage() {
                       }`}
                     >
                       {shift.isNightShift ? "Evet" : "Hayır"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                        shift.isOnCall
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {shift.isOnCall ? "Evet" : "Hayır"}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600">
@@ -348,6 +362,15 @@ export default function ShiftsPage() {
                 onChange={(e) => setField("isNightShift", e.target.checked)}
               />
               Gece Nöbeti
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                checked={form.isOnCall}
+                onChange={(e) => setField("isOnCall", e.target.checked)}
+              />
+              İcap Nöbeti (Yedek)
             </label>
           </div>
           <Textarea

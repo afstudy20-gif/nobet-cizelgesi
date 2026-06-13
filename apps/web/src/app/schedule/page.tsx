@@ -21,6 +21,7 @@ interface Person {
   id: string;
   fullName: string;
   code: string;
+  role?: string;
 }
 
 interface ShiftTemplate {
@@ -46,6 +47,8 @@ interface Assignment {
   date: string;
   status: string;
   isLocked: boolean;
+  role: string | null;
+  isOnCall: boolean;
   person: Person | null;
   shiftRequirement: ShiftRequirement;
 }
@@ -154,7 +157,7 @@ function EditAssignmentModal({ assignment, people, onClose, onSaved }: EditModal
             <option value="">— Boş —</option>
             {people.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.fullName} ({p.code})
+                {p.fullName} ({p.role === "UZMAN" ? "Uzman" : p.role === "HEMSIRE" ? "Hemşire" : "Asistan"} - {p.code})
               </option>
             ))}
           </Select>
@@ -261,7 +264,7 @@ function TableView({ assignments, onCellClick, onToggleLock, lockingIds }: Table
                                 : "bg-blue-50 text-blue-800 hover:bg-blue-100"
                             }`}
                           >
-                            {a.person ? a.person.fullName : "Boş"}
+                            {a.person ? `${a.person.fullName}${a.role ? ` (${a.role === "UZMAN" ? "Uzman" : a.role === "HEMSIRE" ? "Hemşire" : "Asistan"})` : ""}` : "Boş"}
                           </button>
                           <button
                             onClick={() => onToggleLock(a)}
@@ -346,7 +349,12 @@ function PersonView({ assignments }: PersonViewProps) {
           {people.map((person, i) => (
             <tr key={person.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
               <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap sticky left-0 bg-inherit z-10">
-                {person.fullName}
+                <div>{person.fullName}</div>
+                {person.role && (
+                  <div className="text-[10px] text-gray-400 font-normal mt-0.5">
+                    {person.role === "UZMAN" ? "Uzman Doktor" : person.role === "HEMSIRE" ? "Hemşire" : "Asistan"}
+                  </div>
+                )}
               </td>
               {dates.map((d) => {
                 const codes = lookup[person.id]?.[d];
@@ -456,7 +464,7 @@ function CalendarView({ assignments }: CalendarViewProps) {
                           }`}
                         >
                           {a.shiftRequirement.shiftTemplate.code}:{" "}
-                          {a.person ? a.person.fullName : "Boş"}
+                          {a.person ? `${a.person.fullName}${a.role ? ` (${a.role === "UZMAN" ? "Uz" : a.role === "HEMSIRE" ? "Hem" : "As"})` : ""}` : "Boş"}
                         </div>
                       ))}
                     </div>

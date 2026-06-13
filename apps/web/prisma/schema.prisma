@@ -66,6 +66,7 @@ model Person {
   fullName  String
   phone     String?
   email     String?
+  role      String   @default("ASISTAN")
   isActive  Boolean  @default(true)
   notes     String?
   createdAt DateTime @default(now())
@@ -105,6 +106,7 @@ model ShiftTemplate {
   defaultLocationId     String?
   color                 String?
   isNightShift          Boolean  @default(false)
+  isOnCall              Boolean  @default(false)
   minimumRestHoursAfter Int      @default(12)
   isActive              Boolean  @default(true)
 
@@ -124,6 +126,7 @@ model CoverageRule {
   validFrom        DateTime? // for DATE_RANGE
   validTo          DateTime? // for DATE_RANGE
   requiredHeadcount Int      @default(1)
+  roleRequirements Json?
   priority         Int       @default(0)
   isActive         Boolean   @default(true)
 }
@@ -148,6 +151,7 @@ model PersonWorkRule {
   maxAssignmentsPerPeriod         Int?
   maxNightAssignmentsPerPeriod    Int?
   maxWeekendAssignmentsPerPeriod  Int?
+  maxOnCallAssignmentsPerPeriod   Int?
   maxConsecutiveDays              Int?
   minRestHoursBetweenAssignments  Int     @default(12)
   allowBackToBackNightShift       Boolean @default(false)
@@ -197,6 +201,7 @@ model ShiftRequirement {
   location          Location       @relation(fields: [locationId], references: [id])
   locationId        String
   requiredHeadcount Int
+  roleRequirements  Json?
   priority          Int            @default(0)
 
   assignments  Assignment[]
@@ -214,6 +219,8 @@ model Assignment {
   date               DateTime
   startDateTime      DateTime
   endDateTime        DateTime
+  role               String?
+  isOnCall           Boolean          @default(false)
   status             AssignmentStatus @default(ASSIGNED)
   isLocked           Boolean          @default(false)
   source             AssignmentSource @default(AUTO)
