@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm --filter @nobet/web dev",
     "build": "pnpm --filter @nobet/web build",
-    "test": "pnpm --filter @nobet/scheduler test",
+    "test": "pnpm -r --if-present test",
     "lint": "pnpm --filter @nobet/web lint",
     "db:generate": "pnpm --filter @nobet/web db:generate",
     "db:push": "pnpm --filter @nobet/web db:push",

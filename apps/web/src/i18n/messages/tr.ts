@@ -97,4 +97,16 @@ export const tr: Messages = {
   "export.excelTemplate": "Excel şablonu",
   "export.wordTemplate": "Word şablonu",
   "export.pdfTemplate": "PDF şablonu",
+  "auth.title": "Giriş",
+  "auth.subtitle": "Devam etmek için yönetici şifresini girin.",
+  "auth.password": "Şifre",
+  "auth.passwordPlaceholder": "Yönetici şifresi",
+  "auth.signIn": "Giriş yap",
+  "auth.signingIn": "Giriş yapılıyor...",
+  "auth.signOut": "Çıkış yap",
+  "auth.errorInvalid": "Şifre hatalı.",
+  "auth.errorRateLimited": "Çok fazla deneme yapıldı. Lütfen daha sonra tekrar deneyin.",
+  "auth.errorNotConfigured":
+    "Sunucuda kimlik doğrulama yapılandırılmamış. AUTH_SECRET ve ADMIN_PASSWORD_HASH tanımlanmalı.",
+  "auth.errorGeneric": "Giriş yapılamadı.",
 };

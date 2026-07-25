@@ -92,6 +92,17 @@ export type MessageKey =
   | "export.errorDelete"
   | "export.excelTemplate"
   | "export.wordTemplate"
-  | "export.pdfTemplate";
+  | "export.pdfTemplate"
+  | "auth.title"
+  | "auth.subtitle"
+  | "auth.password"
+  | "auth.passwordPlaceholder"
+  | "auth.signIn"
+  | "auth.signingIn"
+  | "auth.signOut"
+  | "auth.errorInvalid"
+  | "auth.errorRateLimited"
+  | "auth.errorNotConfigured"
+  | "auth.errorGeneric";
 
 export type Messages = Record<MessageKey, string>;

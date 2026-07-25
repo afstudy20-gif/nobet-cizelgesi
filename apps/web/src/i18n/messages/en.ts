@@ -96,4 +96,16 @@ export const en: Messages = {
   "export.excelTemplate": "Excel template",
   "export.wordTemplate": "Word template",
   "export.pdfTemplate": "PDF template",
+  "auth.title": "Sign in",
+  "auth.subtitle": "Enter the administrator password to continue.",
+  "auth.password": "Password",
+  "auth.passwordPlaceholder": "Administrator password",
+  "auth.signIn": "Sign in",
+  "auth.signingIn": "Signing in...",
+  "auth.signOut": "Sign out",
+  "auth.errorInvalid": "Incorrect password.",
+  "auth.errorRateLimited": "Too many attempts. Please try again later.",
+  "auth.errorNotConfigured":
+    "Authentication is not configured on the server. AUTH_SECRET and ADMIN_PASSWORD_HASH must be set.",
+  "auth.errorGeneric": "Could not sign in.",
 };

@@ -28,6 +28,10 @@ services:
       NODE_ENV: production
       PORT: 3100
       HOSTNAME: "0.0.0.0"
+      # Generate with: pnpm --filter @nobet/web auth:hash "<password>"
+      # Compose refuses to start if these are not set in the environment / .env file.
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set — run "pnpm --filter @nobet/web auth:hash"}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set — run "pnpm --filter @nobet/web auth:hash"}
     depends_on:
       postgres:
         condition: service_healthy
