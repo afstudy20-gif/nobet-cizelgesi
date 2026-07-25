@@ -129,6 +129,11 @@ model CoverageRule {
   roleRequirements Json?
   priority         Int       @default(0)
   isActive         Boolean   @default(true)
+
+  // Postgres does not index foreign keys automatically. Without these, every
+  // location/template delete scans this table to enforce the FK.
+  @@index([locationId])
+  @@index([shiftTemplateId])
 }
 
 model PersonLocationRule {
@@ -141,6 +146,8 @@ model PersonLocationRule {
   priority   Int      @default(0)
 
   @@unique([personId, locationId])
+  // personId is already covered as the prefix of the unique above.
+  @@index([locationId])
 }
 
 model PersonWorkRule {
@@ -172,6 +179,9 @@ model AvailabilityRule {
   locationId       String?
   notes            String?
   createdAt        DateTime         @default(now())
+
+  @@index([personId])
+  @@index([locationId])
 }
 
 // ─── Scheduling ───────────────────────────────────────────────────────────────
@@ -206,6 +216,11 @@ model ShiftRequirement {
 
   assignments  Assignment[]
   conflictLogs ConflictLog[]
+
+  // Every generation and export filters requirements by period.
+  @@index([periodId])
+  @@index([shiftTemplateId])
+  @@index([locationId])
 }
 
 model Assignment {
@@ -228,6 +243,16 @@ model Assignment {
   notes              String?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
+
+  // The schedule view and all three exports filter by period and sort by
+  // [date, startDateTime]; this one index serves both. It also covers lookups
+  // on periodId alone as a prefix.
+  @@index([periodId, date, startDateTime])
+  @@index([shiftRequirementId])
+  // Schedule generation loads each person's assignments for one period, and
+  // the person detail page loads them by person alone — which this also
+  // serves, as personId is the prefix.
+  @@index([personId, periodId])
 }
 
 model ConflictLog {
@@ -243,6 +268,10 @@ model ConflictLog {
   message            String
   metadata           Json?
   createdAt          DateTime          @default(now())
+
+  @@index([periodId])
+  @@index([shiftRequirementId])
+  @@index([personId])
 }
 
 // ─── Export templates ─────────────────────────────────────────────────────────
@@ -261,4 +290,7 @@ model ExportTemplate {
   isDefault      Boolean              @default(false)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
+
+  // Resolved on every single export request.
+  @@index([format, isDefault])
 }

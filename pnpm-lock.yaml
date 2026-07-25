@@ -20,7 +20,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       '@prisma/client':
-        specifier: ^5.14.0
+        specifier: 5.22.0
         version: 5.22.0(prisma@5.22.0)
       '@tanstack/react-table':
         specifier: ^8.17.3
@@ -93,7 +93,7 @@ importers:
         specifier: ^8.4.38
         version: 8.5.8
       prisma:
-        specifier: ^5.14.0
+        specifier: 5.22.0
         version: 5.22.0
       tailwindcss:
         specifier: ^3.4.4
