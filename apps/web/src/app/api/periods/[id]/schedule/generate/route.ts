@@ -113,15 +113,52 @@ export async function POST(_req: NextRequest, { params }: Params) {
       },
     });
 
-    // 4. Keep locked assignments untouched; delete non-locked AUTO assignments
-    await prisma.assignment.deleteMany({
-      where: { periodId, isLocked: false, source: AssignmentSource.AUTO },
+    /**
+     * 4. Establish what survives regeneration.
+     *
+     * Regeneration only wipes assignments that it created itself and that the
+     * user has not locked. Everything else — locked rows, and MANUAL rows the
+     * user placed by hand — stays in the database, so the engine has to treat
+     * those slots and those people as already committed. Seeding the tracking
+     * from locked rows alone let a non-locked MANUAL assignment stay in the DB
+     * while being invisible to the overlap, rest and quota checks, which
+     * double-booked that person.
+     *
+     * `survivesRegeneration` is the exact complement of the delete filter
+     * below; the two must always be changed together.
+     */
+    const deleteFilter = { isLocked: false, source: AssignmentSource.AUTO };
+    const survivesRegeneration = (a: { isLocked: boolean; source: AssignmentSource }): boolean =>
+      a.isLocked || a.source !== AssignmentSource.AUTO;
+
+    // Includes rows with no person (e.g. a locked UNFILLED slot), which the
+    // per-person lists below cannot see.
+    const survivingAssignments = await prisma.assignment.findMany({
+      where: { periodId, NOT: deleteFilter },
+      select: {
+        shiftRequirementId: true,
+        personId: true,
+        role: true,
+        status: true,
+      },
     });
 
-    // 5. Delete ConflictLogs for this period
-    await prisma.conflictLog.deleteMany({ where: { periodId } });
+    type SurvivingSlot = {
+      personId: string | null;
+      role: string | null;
+      status: AssignmentStatus;
+    };
 
-    // Build mutable per-person assignment tracking (start from locked assignments only)
+    const survivingByRequirement = new Map<string, SurvivingSlot[]>();
+
+    for (const a of survivingAssignments) {
+      const slots = survivingByRequirement.get(a.shiftRequirementId) ?? [];
+      slots.push({ personId: a.personId, role: a.role, status: a.status });
+      survivingByRequirement.set(a.shiftRequirementId, slots);
+    }
+
+    // Build mutable per-person assignment tracking, seeded from every
+    // assignment that survives the wipe.
     type TrackingAssignment = {
       startDateTime: Date;
       endDateTime: Date;
@@ -134,8 +171,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
     const personAssignments = new Map<string, TrackingAssignment[]>();
 
     for (const person of rawPeople) {
-      const locked = person.assignments
-        .filter((a) => a.isLocked)
+      const retained = person.assignments
+        .filter(survivesRegeneration)
         .map((a) => ({
           startDateTime: a.startDateTime,
           endDateTime: a.endDateTime,
@@ -144,7 +181,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
           locationId: a.shiftRequirement.locationId,
           date: startOfDay(a.startDateTime),
         }));
-      personAssignments.set(person.id, locked);
+      personAssignments.set(person.id, retained);
     }
 
     // 6. Sort requirements by difficulty: night shifts first, then weekends, then by date
@@ -271,23 +308,48 @@ export async function POST(_req: NextRequest, { params }: Params) {
         req.shiftTemplate.crossesMidnight
       );
 
-      let filled = 0;
+      const surviving = survivingByRequirement.get(req.id) ?? [];
 
-      // Collect already-assigned person IDs for this requirement slot (from locked ones)
-      // to avoid double-assigning the same person
-      const assignedToReq = new Set<string>();
+      // Locked / manual rows already occupy part of this requirement. Starting
+      // from zero here meant a requirement for 2 people with one locked
+      // assignment got 2 *more* people assigned to it.
+      let filled = surviving.filter((s) => s.status === AssignmentStatus.ASSIGNED).length;
 
+      // Nobody already on this requirement may be picked again for it.
+      const assignedToReq = new Set<string>(
+        surviving.map((s) => s.personId).filter((id): id is string => id !== null)
+      );
+
+      /**
+       * Every slot this requirement declares: role-typed where the coverage
+       * rule names a role, padded with unrestricted slots up to
+       * requiredHeadcount. Without the padding a rule of headcount 3 with
+       * `{ UZMAN: 1 }` produced a single slot yet still reported 2 unfilled,
+       * with no row anywhere to show for them.
+       */
       const slotRoles: string[] = [];
       const roleReqs = req.roleRequirements as Record<string, number> | null;
-      if (roleReqs && typeof roleReqs === "object" && Object.keys(roleReqs).length > 0) {
+      if (roleReqs && typeof roleReqs === "object") {
         for (const [roleName, count] of Object.entries(roleReqs)) {
           for (let i = 0; i < count; i++) {
             slotRoles.push(roleName);
           }
         }
-      } else {
-        for (let i = 0; i < req.requiredHeadcount; i++) {
-          slotRoles.push("ANY");
+      }
+      while (slotRoles.length < req.requiredHeadcount) {
+        slotRoles.push("ANY");
+      }
+
+      const totalSlots = slotRoles.length;
+
+      // Remove the slots the surviving rows already cover, matching on role so
+      // a retained UZMAN row consumes an UZMAN slot rather than an open one.
+      for (const slot of surviving) {
+        const wantedRole = slot.role ?? "ANY";
+        const exactIndex = slotRoles.indexOf(wantedRole);
+        const index = exactIndex !== -1 ? exactIndex : slotRoles.indexOf("ANY");
+        if (index !== -1) {
+          slotRoles.splice(index, 1);
         }
       }
 
@@ -512,8 +574,9 @@ export async function POST(_req: NextRequest, { params }: Params) {
         }
       }
 
-      // 8. Create ConflictLog for each unfilled slot
-      const unfilled = req.requiredHeadcount - filled;
+      // 8. Create ConflictLog for each unfilled slot. Counted against the slots
+      // actually declared, so the number always matches the UNFILLED rows.
+      const unfilled = totalSlots - filled;
       if (unfilled > 0) {
         conflictEntries.push({
           periodId,
@@ -526,19 +589,29 @@ export async function POST(_req: NextRequest, { params }: Params) {
       }
     }
 
-    // Bulk-create assignments and conflict logs
-    await prisma.assignment.createMany({ data: newAssignments });
-    if (conflictEntries.length > 0) {
-      await prisma.conflictLog.createMany({ data: conflictEntries });
-    }
-
-    // 9. Update period.generationNotes with summary
     const total = totalAssigned + totalUnfilled;
     const summary = `Generated ${new Date().toISOString()}: ${totalAssigned}/${total} slots filled, ${totalUnfilled} unfilled, ${conflictEntries.length} conflicts.`;
-    await prisma.schedulePeriod.update({
-      where: { id: periodId },
-      data: { generationNotes: summary },
-    });
+
+    /**
+     * 9. Apply the whole regeneration atomically.
+     *
+     * The solve above is pure in-memory work, so only the writes need to be in
+     * the transaction — which keeps it short enough to stay clear of statement
+     * timeouts. Previously the deletes were committed first and the inserts
+     * ran hundreds of iterations later, so any failure, timeout or client
+     * abort in between left the period with its schedule erased and nothing
+     * written back.
+     */
+    await prisma.$transaction([
+      prisma.assignment.deleteMany({ where: { periodId, ...deleteFilter } }),
+      prisma.conflictLog.deleteMany({ where: { periodId } }),
+      prisma.assignment.createMany({ data: newAssignments }),
+      prisma.conflictLog.createMany({ data: conflictEntries }),
+      prisma.schedulePeriod.update({
+        where: { id: periodId },
+        data: { generationNotes: summary },
+      }),
+    ]);
 
     return NextResponse.json({
       assigned: totalAssigned,
