@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { CURRENT_VERSION } from "@/lib/sync/backup-schema";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export async function GET() {
       shiftRequirements,
       assignments,
       conflictLogs,
+      rawExportTemplates,
     ] = await Promise.all([
       prisma.person.findMany(),
       prisma.location.findMany(),
@@ -29,7 +31,23 @@ export async function GET() {
       prisma.shiftRequirement.findMany(),
       prisma.assignment.findMany(),
       prisma.conflictLog.findMany(),
+      prisma.exportTemplate.findMany(),
     ]);
+
+    /**
+     * `fileData` is the user's uploaded .xlsx/.docx. JSON.stringify would turn
+     * the Buffer into `{type:"Buffer",data:[...]}`, so it travels as base64.
+     *
+     * Export templates were missing from the backup entirely, which meant
+     * every uploaded template file and every export customisation was lost
+     * when a user restored onto a new device — the whole point of the sync.
+     */
+    const exportTemplates = rawExportTemplates.map((template) => ({
+      ...template,
+      fileData: template.fileData
+        ? Buffer.from(template.fileData).toString("base64")
+        : null,
+    }));
 
     // Calculate maximum date from retrieved records
     const dates = [
@@ -46,9 +64,10 @@ export async function GET() {
     const lastModified = dates.length > 0 ? Math.max(...dates.map((d) => d.getTime())) : 0;
 
     return NextResponse.json({
-      version: 1,
+      version: CURRENT_VERSION,
       lastModified,
       data: {
+        exportTemplates,
         people,
         locations,
         shiftTemplates,

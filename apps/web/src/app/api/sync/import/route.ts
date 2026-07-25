@@ -1,78 +1,34 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { BackupSchema, type BackupData } from "@/lib/sync/backup-schema";
 
-export async function POST(req: NextRequest) {
-  try {
-    const payload = await req.json();
-    if (!payload || typeof payload !== "object" || !payload.data) {
-      return NextResponse.json(
-        { error: { code: "VALIDATION_ERROR", message: "Invalid payload format" } },
-        { status: 400 }
-      );
-    }
+export const dynamic = "force-dynamic";
 
-    const { data } = payload;
+/**
+ * Restoring a full backup wipes every table before repopulating it, so the
+ * whole thing runs in one transaction: a failure part-way must not leave the
+ * database empty. The default interactive-transaction timeout of 5s is far too
+ * short for that.
+ */
+const TRANSACTION_TIMEOUT_MS = 120_000;
+const TRANSACTION_MAX_WAIT_MS = 10_000;
 
-    // Parse string date fields to JS Date objects
-    const people = (data.people || []).map((p: any) => ({
-      ...p,
-      createdAt: new Date(p.createdAt),
-      updatedAt: new Date(p.updatedAt),
-    }));
+/** Rejected before the body is read, so an oversized payload is never parsed. */
+const MAX_BODY_BYTES = 200 * 1024 * 1024;
 
-    const locations = data.locations || [];
+/**
+ * One restore at a time.
+ *
+ * Two concurrent restores each hold a 2-minute transaction that deletes and
+ * repopulates every table; they contend on row locks until one times out and
+ * rolls back. A double-clicked "restore" button is enough to trigger it.
+ */
+let restoreInProgress = false;
 
-    const shiftTemplates = data.shiftTemplates || [];
-
-    const coverageRules = (data.coverageRules || []).map((r: any) => ({
-      ...r,
-      specificDate: r.specificDate ? new Date(r.specificDate) : null,
-      validFrom: r.validFrom ? new Date(r.validFrom) : null,
-      validTo: r.validTo ? new Date(r.validTo) : null,
-    }));
-
-    const personLocationRules = data.personLocationRules || [];
-
-    const personWorkRules = data.personWorkRules || [];
-
-    const availabilityRules = (data.availabilityRules || []).map((r: any) => ({
-      ...r,
-      validFrom: r.validFrom ? new Date(r.validFrom) : null,
-      validTo: r.validTo ? new Date(r.validTo) : null,
-      createdAt: new Date(r.createdAt),
-    }));
-
-    const schedulePeriods = (data.schedulePeriods || []).map((p: any) => ({
-      ...p,
-      startDate: new Date(p.startDate),
-      endDate: new Date(p.endDate),
-      createdAt: new Date(p.createdAt),
-      updatedAt: new Date(p.updatedAt),
-    }));
-
-    const shiftRequirements = (data.shiftRequirements || []).map((r: any) => ({
-      ...r,
-      date: new Date(r.date),
-    }));
-
-    const assignments = (data.assignments || []).map((a: any) => ({
-      ...a,
-      date: new Date(a.date),
-      startDateTime: new Date(a.startDateTime),
-      endDateTime: new Date(a.endDateTime),
-      createdAt: new Date(a.createdAt),
-      updatedAt: new Date(a.updatedAt),
-    }));
-
-    const conflictLogs = (data.conflictLogs || []).map((c: any) => ({
-      ...c,
-      createdAt: new Date(c.createdAt),
-    }));
-
-    // Perform wipe and restore inside a transaction
-    await prisma.$transaction(async (tx) => {
-      // 1. Delete all tables in reverse relation order (dependent children first)
+async function restore(data: BackupData): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      // Children first, so no delete is blocked by a foreign key.
       await tx.conflictLog.deleteMany();
       await tx.assignment.deleteMany();
       await tx.shiftRequirement.deleteMany();
@@ -85,25 +41,107 @@ export async function POST(req: NextRequest) {
       await tx.location.deleteMany();
       await tx.person.deleteMany();
 
-      // 2. Insert all tables in dependency order (parents first)
-      if (people.length > 0) await tx.person.createMany({ data: people });
-      if (locations.length > 0) await tx.location.createMany({ data: locations });
-      if (shiftTemplates.length > 0) await tx.shiftTemplate.createMany({ data: shiftTemplates });
-      if (coverageRules.length > 0) await tx.coverageRule.createMany({ data: coverageRules });
-      if (personLocationRules.length > 0) await tx.personLocationRule.createMany({ data: personLocationRules });
-      if (personWorkRules.length > 0) await tx.personWorkRule.createMany({ data: personWorkRules });
-      if (availabilityRules.length > 0) await tx.availabilityRule.createMany({ data: availabilityRules });
-      if (schedulePeriods.length > 0) await tx.schedulePeriod.createMany({ data: schedulePeriods });
-      if (shiftRequirements.length > 0) await tx.shiftRequirement.createMany({ data: shiftRequirements });
-      if (assignments.length > 0) await tx.assignment.createMany({ data: assignments });
-      if (conflictLogs.length > 0) await tx.conflictLog.createMany({ data: conflictLogs });
-    });
+      // Parents first, so every foreign key has something to point at.
+      if (data.people.length) await tx.person.createMany({ data: data.people });
+      if (data.locations.length) await tx.location.createMany({ data: data.locations });
+      if (data.shiftTemplates.length)
+        await tx.shiftTemplate.createMany({ data: data.shiftTemplates });
+      if (data.coverageRules.length)
+        await tx.coverageRule.createMany({ data: data.coverageRules });
+      if (data.personLocationRules.length)
+        await tx.personLocationRule.createMany({ data: data.personLocationRules });
+      if (data.personWorkRules.length)
+        await tx.personWorkRule.createMany({ data: data.personWorkRules });
+      if (data.availabilityRules.length)
+        await tx.availabilityRule.createMany({ data: data.availabilityRules });
+      if (data.schedulePeriods.length)
+        await tx.schedulePeriod.createMany({ data: data.schedulePeriods });
+      if (data.shiftRequirements.length)
+        await tx.shiftRequirement.createMany({ data: data.shiftRequirements });
+      if (data.assignments.length) await tx.assignment.createMany({ data: data.assignments });
+      if (data.conflictLogs.length) await tx.conflictLog.createMany({ data: data.conflictLogs });
 
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
+      // Version 1 backups carry no export templates at all. Absent means "this
+      // backup says nothing about them", not "delete them" — so the table is
+      // only touched when the key is actually present.
+      if (data.exportTemplates) {
+        await tx.exportTemplate.deleteMany();
+
+        if (data.exportTemplates.length) {
+          await tx.exportTemplate.createMany({ data: data.exportTemplates });
+        }
+      }
+    },
+    { timeout: TRANSACTION_TIMEOUT_MS, maxWait: TRANSACTION_MAX_WAIT_MS }
+  );
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const declaredLength = Number(req.headers.get("content-length") ?? "0");
+
+    if (declaredLength > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: { code: "PAYLOAD_TOO_LARGE", message: "Backup is too large" } },
+        { status: 413 }
+      );
+    }
+
+    if (restoreInProgress) {
+      return NextResponse.json(
+        { error: { code: "RESTORE_IN_PROGRESS", message: "A restore is already running" } },
+        { status: 409 }
+      );
+    }
+
+    let payload: unknown;
+
+    try {
+      payload = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: { code: "VALIDATION_ERROR", message: "Body is not valid JSON" } },
+        { status: 400 }
+      );
+    }
+
+    const parsed = BackupSchema.safeParse(payload);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid backup payload",
+            details: parsed.error.flatten(),
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    const { data } = parsed.data;
+
+    restoreInProgress = true;
+
+    try {
+      await restore(data);
+    } finally {
+      restoreInProgress = false;
+    }
+
+    const restored = Object.fromEntries(
+      Object.entries(data).map(([table, rows]) => [table, rows?.length ?? 0])
+    );
+
+    return NextResponse.json({ success: true, restored });
+  } catch (err) {
+    // Never surface the raw message: Prisma errors carry table, column and
+    // constraint names, and sometimes row values.
     console.error("[POST /api/sync/import]", err);
+
     return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: err.message || "Unexpected error" } },
+      { error: { code: "INTERNAL_ERROR", message: "Unexpected error" } },
       { status: 500 }
     );
   }
