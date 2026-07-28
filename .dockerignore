@@ -1,0 +1,24 @@
+# Without this the build context carries the host's node_modules and build
+# output, and `COPY apps/web/ ./apps/web/` then drops them on top of the
+# install that ran inside the image — host-architecture binaries and pnpm
+# symlinks pointing at paths that do not exist in the container.
+node_modules
+**/node_modules
+
+# Build artefacts — regenerated inside the image.
+.next
+**/.next
+out
+**/out
+dist
+**/dist
+*.tsbuildinfo
+
+.git
+.gitignore
+.claude
+.env
+.env.*
+docs
+**/__tests__
+*.md

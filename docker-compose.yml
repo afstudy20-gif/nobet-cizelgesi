@@ -8,6 +8,6 @@ services:
       dockerfile: apps/web/Dockerfile
     container_name: nobet-web
     ports:
-      # Host port 3100 keeps existing deploy config working; nginx serves on 80.
-      - "3100:80"
+      # Host port 3100 keeps existing deploy config working; nginx serves on 3100.
+      - "3100:3100"
     restart: unless-stopped

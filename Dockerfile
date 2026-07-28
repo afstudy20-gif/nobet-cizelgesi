@@ -18,4 +18,4 @@ RUN pnpm --filter @nobet/web build
 FROM nginx:alpine AS runner
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/apps/web/out /usr/share/nginx/html
-EXPOSE 80
+EXPOSE 3100
