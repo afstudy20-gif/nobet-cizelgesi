@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 import {
   LayoutDashboard,
@@ -12,7 +12,6 @@ import {
   Download,
   Shield,
   Calculator,
-  LogOut,
 } from "lucide-react";
 
 import { CloudSync } from "./CloudSync";
@@ -33,20 +32,8 @@ const iconByKey = {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { t } = useI18n();
   const nav = useNavItems();
-
-  // The login page is the one route rendered without a session — no nav there.
-  if (pathname === "/login") {
-    return null;
-  }
-
-  async function handleSignOut() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
-  }
 
   return (
     <aside className="w-56 flex-shrink-0 bg-gray-900 text-gray-100 flex flex-col">
@@ -81,16 +68,6 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="border-t border-gray-700 p-2">
-        <button
-          type="button"
-          onClick={handleSignOut}
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-        >
-          <LogOut size={16} aria-hidden="true" />
-          {t("auth.signOut")}
-        </button>
-      </div>
     </aside>
   );
 }

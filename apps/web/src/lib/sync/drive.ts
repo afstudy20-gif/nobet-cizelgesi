@@ -55,10 +55,10 @@ interface GisErrorCallback {
 }
 
 /**
- * Shape of Google Identity Services we use. Cast from `window.google` (which may
- * be declared `any` elsewhere, or not at all once the legacy cloud-sync module
- * is removed) rather than augmenting the global, so this module is self-
- * contained and never conflicts with another `Window.google` declaration.
+ * Shape of Google Identity Services we use — only the corner of it this module
+ * touches. GIS is loaded from a script tag at runtime, so the global has to be
+ * declared somewhere; this module is the only consumer, so it declares it here
+ * rather than in a shared ambient file.
  */
 interface GisGlobal {
   accounts?: {
@@ -73,10 +73,16 @@ interface GisGlobal {
   };
 }
 
+declare global {
+  interface Window {
+    google?: GisGlobal;
+  }
+}
+
 /** Typed view of `window.google`, or null when GIS is not loaded / unavailable. */
 function getGis(): GisGlobal | null {
   if (!hasWindow()) return null;
-  return (window.google as GisGlobal | undefined) ?? null;
+  return window.google ?? null;
 }
 
 export interface SyncState {

@@ -1,5 +1,5 @@
 import type { Table } from "dexie";
-import type { z, ZodType } from "zod";
+import type { z, ZodTypeAny } from "zod";
 import {
   AssignmentPatchSchema,
   AvailabilityRuleCreateSchema,
@@ -195,7 +195,16 @@ const personLocationRulePatchSchema = PersonLocationRuleSchema.partial();
 const MAX_TEMPLATE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_TITLE = "{{hospital}} — {{month}} {{year}} Nöbet Çizelgesi";
 
-function parseInput<T>(schema: ZodType<T>, input: unknown): T {
+/**
+ * Validate at the repository boundary — now the only boundary there is.
+ *
+ * The return type is `z.output<S>`, not a bare inferred `T`. Several schemas
+ * use `.default()`, which makes their input and output types differ; a
+ * `ZodType<T>` parameter lets TypeScript bind `T` to the *input* side, so every
+ * defaulted field would come back optional and every record built from it would
+ * need a redundant `?? default` that silently disagrees with the schema.
+ */
+function parseInput<S extends ZodTypeAny>(schema: S, input: unknown): z.output<S> {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new RepoError(
@@ -621,7 +630,14 @@ export const locationsRepo = {
   },
   async create(input: LocationCreateInput): Promise<Location> {
     const data = parseInput(LocationCreateSchema, input);
-    return addRecord(db.locations, { id: uid(), updatedAt: now(), ...data }, "Location code already exists");
+    return addRecord(
+      db.locations,
+      {
+        id: uid(), updatedAt: now(), code: data.code, name: data.name,
+        address: data.address ?? null, isActive: data.isActive, notes: data.notes ?? null,
+      },
+      "Location code already exists"
+    );
   },
   async update(id: string, input: LocationUpdateInput): Promise<Location> {
     const current = await requireOne(db.locations, id, "Location not found");
@@ -629,9 +645,14 @@ export const locationsRepo = {
     return putRecord(db.locations, { ...current, ...patch, updatedAt: now() }, "Location code already exists");
   },
   async remove(id: string): Promise<void> {
+    // Six tables: past five, Dexie's typed overloads stop and only the array
+    // form type-checks.
     await db.transaction(
-      "rw", db.locations, db.shiftTemplates, db.coverageRules,
-      db.personLocationRules, db.availabilityRules, db.shiftRequirements,
+      "rw",
+      [
+        db.locations, db.shiftTemplates, db.coverageRules,
+        db.personLocationRules, db.availabilityRules, db.shiftRequirements,
+      ],
       async () => {
         const location = await requireOne(db.locations, id, "Location not found");
         const dependencies = [
