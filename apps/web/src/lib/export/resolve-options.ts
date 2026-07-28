@@ -1,70 +1,48 @@
-import type { ExportFormat, ExportTemplate, SchedulePeriod } from "@prisma/client";
 import { ExportTemplateConfigSchema } from "@nobet/shared";
-import { prisma } from "@/lib/prisma";
+import type { ExportTemplate, SchedulePeriod } from "@/lib/db/types";
 import { applyPlaceholders, buildPlaceholderVars } from "./placeholders";
 import { formatMonthLabel, parseYearMonth, yearMonthFromDate } from "./month-label";
+import type { ExportFormat, ExportOverrides, ExportViewMode, ResolvedExportOptions } from "./types";
 
-export type ExportViewMode = "grid" | "person" | "location";
+export type { ExportViewMode, ResolvedExportOptions } from "./types";
 
-export type ResolvedExportOptions = {
-  hospitalName: string;
-  workingMonth: string;
-  monthLabel: string;
-  year: string;
-  title: string;
-  view: ExportViewMode;
-  includeSummary: boolean;
-  includeConflicts: boolean;
-  template: ExportTemplate | null;
-  placeholderVars: ReturnType<typeof buildPlaceholderVars>;
-};
+const DEFAULT_TITLE_TEMPLATE = "{{hospital}} — {{month}} {{year}} Nöbet Çizelgesi";
 
-type SearchParamsLike = {
-  get(name: string): string | null;
-};
-
-export async function resolveExportOptions(
-  searchParams: SearchParamsLike,
-  period: SchedulePeriod,
+/**
+ * Resolve export options from a loaded period, an already-loaded template
+ * (or `null`) and an overrides bag. Pure and synchronous: no Prisma, no I/O.
+ *
+ * Template resolution is the caller's job — the repo already selected it by id
+ * or by `isDefault`. Here we only normalise the resulting config and apply the
+ * overrides that match the old query-string behaviour (explicit override wins,
+ * else template config, else default).
+ */
+export function resolveExportOptions(
+  period: Pick<SchedulePeriod, "name" | "startDate">,
+  template: ExportTemplate | null,
+  overrides: ExportOverrides,
   format: ExportFormat
-): Promise<ResolvedExportOptions> {
-  const templateId = searchParams.get("templateId");
-
-  let template: ExportTemplate | null = null;
-  if (templateId) {
-    template = await prisma.exportTemplate.findUnique({ where: { id: templateId } });
-    if (template && template.format !== format) {
-      template = null;
-    }
-  }
-
-  if (!template) {
-    template = await prisma.exportTemplate.findFirst({
-      where: { format, isDefault: true },
-      orderBy: { updatedAt: "desc" },
-    });
-  }
+): ResolvedExportOptions {
+  void format;
 
   const configResult = ExportTemplateConfigSchema.safeParse(template?.config ?? {});
   const config = configResult.success ? configResult.data : ExportTemplateConfigSchema.parse({});
 
   const hospitalName =
-    searchParams.get("hospitalName")?.trim() ||
+    overrides.hospitalName?.trim() ||
     template?.hospitalName?.trim() ||
     "Hastane";
 
   const workingMonth =
-    searchParams.get("workingMonth")?.trim() ||
-    yearMonthFromDate(period.startDate);
+    overrides.workingMonth?.trim() || yearMonthFromDate(period.startDate);
 
   const parsedMonth = parseYearMonth(workingMonth);
   const monthLabel = parsedMonth
     ? formatMonthLabel(workingMonth, "tr")
     : formatMonthLabel(yearMonthFromDate(period.startDate), "tr");
-  const year = parsedMonth?.year ?? period.startDate.getUTCFullYear().toString();
+  const year = parsedMonth?.year ?? period.startDate.slice(0, 4);
 
-  const titleTemplate =
-    template?.titleTemplate ?? "{{hospital}} — {{month}} {{year}} Nöbet Çizelgesi";
+  const titleTemplate = template?.titleTemplate ?? DEFAULT_TITLE_TEMPLATE;
 
   const placeholderVars = buildPlaceholderVars({
     hospitalName,
@@ -78,11 +56,9 @@ export async function resolveExportOptions(
   placeholderVars.title = title;
   placeholderVars.TITLE = title;
 
-  const view = (searchParams.get("view") as ExportViewMode | null) ?? config.view;
-  const includeSummary =
-    searchParams.get("includeSummary") !== "false" && config.includeSummary;
-  const includeConflicts =
-    searchParams.get("includeConflicts") !== "false" && config.includeConflicts;
+  const view: ExportViewMode = overrides.view ?? config.view;
+  const includeSummary = overrides.includeSummary ?? config.includeSummary;
+  const includeConflicts = overrides.includeConflicts ?? config.includeConflicts;
 
   return {
     hospitalName,
@@ -95,5 +71,25 @@ export async function resolveExportOptions(
     includeConflicts,
     template,
     placeholderVars,
+    locale: overrides.locale ?? "tr",
   };
+}
+
+/**
+ * Build the output filename for a format, matching the old route handlers'
+ * slug + month convention.
+ */
+export function buildExportFilename(
+  format: ExportFormat,
+  options: Pick<ResolvedExportOptions, "workingMonth" | "hospitalName">
+): string {
+  const extension = format === "EXCEL" ? "xlsx" : format === "WORD" ? "docx" : "html";
+  const hospitalSlug = options.hospitalName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+  const slugPart = hospitalSlug ? `-${hospitalSlug}` : "";
+  const prefix = format === "EXCEL" ? "nobet-plani" : format === "WORD" ? "nobet-raporu" : "nobet-plani";
+  return `${prefix}-${options.workingMonth}${slugPart}.${extension}`;
 }

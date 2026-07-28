@@ -1,3 +1,18 @@
+/**
+ * Word template post-processing — browser-friendly.
+ *
+ * Two responsibilities, matching the old Node handler:
+ *
+ * 1. Replace `{{placeholder}}` tokens inside the uploaded `.docx` template's
+ *    `word/document.xml`, headers and footers.
+ * 2. Optionally append the body of an `appendBlob` (the plan table produced by
+ *    `word-schedule.ts`) just before the template's closing `</w:body>`.
+ *
+ * All I/O is `ArrayBuffer` / `Blob`. The old version used Node `Buffer` and
+ * `type: "nodebuffer"`; in the browser we use `uint8array` and hand the result
+ * to `new Blob(...)`. JSZip works identically in both runtimes.
+ */
+
 import JSZip from "jszip";
 import { applyPlaceholders, type PlaceholderVars } from "./placeholders";
 
@@ -17,12 +32,24 @@ function insertBeforeClosingBody(documentXml: string, appendXml: string): string
   return `${documentXml.slice(0, idx)}${appendXml}${documentXml.slice(idx)}`;
 }
 
+async function readBlobAsArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+  return blob.arrayBuffer();
+}
+
+/**
+ * Apply placeholder substitution to an uploaded template, and optionally append
+ * the schedule body from `appendBlob`. Returns a fresh `.docx` `Blob`.
+ *
+ * @param templateData the uploaded template bytes (base64-decoded by the caller)
+ * @param vars         placeholder values for `{{hospital}}` etc.
+ * @param appendBlob   optional `.docx` whose body content is appended
+ */
 export async function applyPlaceholdersToDocxBuffer(
-  docxBuffer: Buffer,
+  templateData: ArrayBuffer,
   vars: PlaceholderVars,
-  appendScheduleBuffer?: Buffer
-): Promise<Buffer> {
-  const zip = await JSZip.loadAsync(docxBuffer);
+  appendBlob?: Blob
+): Promise<Blob> {
+  const zip = await JSZip.loadAsync(templateData);
 
   const tasks: Promise<void>[] = [];
   zip.forEach((relativePath, file) => {
@@ -35,11 +62,11 @@ export async function applyPlaceholdersToDocxBuffer(
   });
   await Promise.all(tasks);
 
-  if (appendScheduleBuffer) {
+  if (appendBlob) {
     const docFile = zip.file("word/document.xml");
     if (docFile) {
-      const scheduleZip = await JSZip.loadAsync(appendScheduleBuffer);
-      const scheduleXml = await scheduleZip.file("word/document.xml")?.async("string");
+      const appendZip = await JSZip.loadAsync(await readBlobAsArrayBuffer(appendBlob));
+      const scheduleXml = await appendZip.file("word/document.xml")?.async("string");
       if (scheduleXml) {
         const scheduleInner = extractBodyContent(scheduleXml);
         if (scheduleInner) {
@@ -50,5 +77,8 @@ export async function applyPlaceholdersToDocxBuffer(
     }
   }
 
-  return Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
+  const arrayBuffer = await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+  return new Blob([arrayBuffer], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
 }

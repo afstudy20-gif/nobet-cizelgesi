@@ -1,27 +1,48 @@
+/**
+ * Word (.docx) schedule builder — pure function over already-loaded data.
+ *
+ * Two entry points, both used by the Word export flow:
+ *
+ * - `buildWordScheduleBlob` — a complete standalone document (no uploaded
+ *   template): cover block + plan table + unfilled section.
+ * - `buildWordScheduleAppendBlob` — just the plan table, returned as a `.docx`
+ *   `Blob` whose body XML is appended into an uploaded template by
+ *   `docx-template.ts`.
+ *
+ * Both return `Blob`s via `Packer.toBlob` (the browser-safe packer; `toBuffer`
+ * is Node-only). Data shape is `ExportInput`/`DetailedAssignment` — ISO strings,
+ * not `Date` objects.
+ */
+
 import {
-  Document,
-  Paragraph,
-  Table,
-  TableRow,
-  TableCell,
-  TextRun,
-  HeadingLevel,
-  Packer,
   AlignmentType,
   BorderStyle,
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
   WidthType,
 } from "docx";
-import type { ResolvedExportOptions } from "./resolve-options";
+import type { ExportInput, ResolvedExportOptions } from "./types";
+import type { DetailedAssignment } from "./types";
 
-type AssignmentRow = {
-  date: Date;
-  status: string;
-  person: { fullName: string } | null;
-  shiftRequirement: {
-    location: { name: string };
-    shiftTemplate: { name: string };
-  };
-};
+interface SchedulePeriodShape {
+  name: string;
+  startDate: string;
+  endDate: string;
+}
+
+type AssignmentRow = DetailedAssignment;
+
+const isEn = (locale: "tr" | "en"): boolean => locale === "en";
+
+function formatIsoDate(iso: string, locale: "tr" | "en"): string {
+  return new Date(iso).toLocaleDateString(isEn(locale) ? "en-GB" : "tr-TR");
+}
 
 function boldCell(text: string): TableCell {
   return new TableCell({
@@ -49,42 +70,53 @@ function plainCell(text: string, shade?: boolean): TableCell {
   });
 }
 
-export async function buildWordScheduleBuffer(
-  options: ResolvedExportOptions,
-  period: { name: string; startDate: Date; endDate: Date },
-  assignments: AssignmentRow[],
-  locale: string
-): Promise<Buffer> {
-  const dateFmt = (d: Date) => d.toLocaleDateString(locale);
-  const startDateStr = dateFmt(period.startDate);
-  const endDateStr = dateFmt(period.endDate);
-
-  const tableHeaderRow = new TableRow({
+function planHeaderRow(locale: "tr" | "en"): TableRow {
+  return new TableRow({
     children: [
-      boldCell(locale.startsWith("en") ? "Date" : "Tarih"),
-      boldCell(locale.startsWith("en") ? "Location" : "Lokasyon"),
-      boldCell(locale.startsWith("en") ? "Shift" : "Vardiya"),
-      boldCell(locale.startsWith("en") ? "Assigned" : "Atanan Personel"),
+      boldCell(isEn(locale) ? "Date" : "Tarih"),
+      boldCell(isEn(locale) ? "Location" : "Lokasyon"),
+      boldCell(isEn(locale) ? "Shift" : "Vardiya"),
+      boldCell(isEn(locale) ? "Assigned" : "Atanan Personel"),
     ],
     tableHeader: true,
   });
+}
 
-  const dataRows = assignments.map((a, i) => {
-    const shade = i % 2 !== 0;
-    return new TableRow({
-      children: [
-        plainCell(dateFmt(new Date(a.date)), shade),
-        plainCell(a.shiftRequirement.location.name, shade),
-        plainCell(a.shiftRequirement.shiftTemplate.name, shade),
-        plainCell(a.person?.fullName ?? (locale.startsWith("en") ? "— Empty —" : "— Boş —"), shade),
-      ],
-    });
+function planDataRow(a: AssignmentRow, index: number, locale: "tr" | "en"): TableRow {
+  const shade = index % 2 !== 0;
+  return new TableRow({
+    children: [
+      plainCell(formatIsoDate(a.date, locale), shade),
+      plainCell(a.shiftRequirement?.location?.name ?? "—", shade),
+      plainCell(a.shiftRequirement?.shiftTemplate?.name ?? "—", shade),
+      plainCell(a.person?.fullName ?? (isEn(locale) ? "— Empty —" : "— Boş —"), shade),
+    ],
   });
+}
 
-  const assignmentsTable = new Table({
-    rows: [tableHeaderRow, ...dataRows],
+function planTable(
+  assignments: AssignmentRow[],
+  locale: "tr" | "en"
+): Table {
+  return new Table({
+    rows: [planHeaderRow(locale), ...assignments.map((a, i) => planDataRow(a, i, locale))],
     width: { size: 100, type: WidthType.PERCENTAGE },
   });
+}
+
+/**
+ * Build a complete Word document as a `Blob`. Mirrors the old
+ * `buildWordScheduleBuffer` output (cover block + plan + unfilled section), but
+ * takes ISO-string data and uses the browser packer.
+ */
+export async function buildWordScheduleBlob(
+  options: ResolvedExportOptions,
+  period: SchedulePeriodShape,
+  assignments: AssignmentRow[],
+  locale: "tr" | "en"
+): Promise<Blob> {
+  const startDateStr = formatIsoDate(period.startDate, locale);
+  const endDateStr = formatIsoDate(period.endDate, locale);
 
   const unfilledAssignments = assignments.filter(
     (a) => a.status === "UNFILLED" || a.person === null
@@ -92,9 +124,9 @@ export async function buildWordScheduleBuffer(
 
   const unfilledHeaderRow = new TableRow({
     children: [
-      boldCell(locale.startsWith("en") ? "Date" : "Tarih"),
-      boldCell(locale.startsWith("en") ? "Location" : "Lokasyon"),
-      boldCell(locale.startsWith("en") ? "Shift" : "Vardiya"),
+      boldCell(isEn(locale) ? "Date" : "Tarih"),
+      boldCell(isEn(locale) ? "Location" : "Lokasyon"),
+      boldCell(isEn(locale) ? "Shift" : "Vardiya"),
     ],
     tableHeader: true,
   });
@@ -103,16 +135,16 @@ export async function buildWordScheduleBuffer(
     const shade = i % 2 !== 0;
     return new TableRow({
       children: [
-        plainCell(dateFmt(new Date(a.date)), shade),
-        plainCell(a.shiftRequirement.location.name, shade),
-        plainCell(a.shiftRequirement.shiftTemplate.name, shade),
+        plainCell(formatIsoDate(a.date, locale), shade),
+        plainCell(a.shiftRequirement?.location?.name ?? "—", shade),
+        plainCell(a.shiftRequirement?.shiftTemplate?.name ?? "—", shade),
       ],
     });
   });
 
   const unfilledSection = [
     new Paragraph({
-      text: locale.startsWith("en") ? "Unfilled Duties" : "Boş Nöbetler",
+      text: isEn(locale) ? "Unfilled Duties" : "Boş Nöbetler",
       heading: HeadingLevel.HEADING_2,
       spacing: { before: 400, after: 200 },
     }),
@@ -120,9 +152,7 @@ export async function buildWordScheduleBuffer(
       ? new Paragraph({
           children: [
             new TextRun({
-              text: locale.startsWith("en")
-                ? "All duties are assigned."
-                : "Tüm nöbetler atanmıştır.",
+              text: isEn(locale) ? "All duties are assigned." : "Tüm nöbetler atanmıştır.",
               italics: true,
               color: "16A34A",
             }),
@@ -147,42 +177,30 @@ export async function buildWordScheduleBuffer(
           }),
           new Paragraph({
             children: [
-              new TextRun({
-                text: locale.startsWith("en") ? "Hospital: " : "Hastane: ",
-                bold: true,
-              }),
+              new TextRun({ text: isEn(locale) ? "Hospital: " : "Hastane: ", bold: true }),
               new TextRun({ text: options.hospitalName }),
             ],
             spacing: { after: 100 },
           }),
           new Paragraph({
             children: [
-              new TextRun({
-                text: locale.startsWith("en") ? "Working Month: " : "Çalışma Ayı: ",
-                bold: true,
-              }),
+              new TextRun({ text: isEn(locale) ? "Working Month: " : "Çalışma Ayı: ", bold: true }),
               new TextRun({ text: options.monthLabel }),
             ],
             spacing: { after: 100 },
           }),
           new Paragraph({
             children: [
-              new TextRun({ text: locale.startsWith("en") ? "Period: " : "Dönem: ", bold: true }),
+              new TextRun({ text: isEn(locale) ? "Period: " : "Dönem: ", bold: true }),
               new TextRun({ text: `${startDateStr} – ${endDateStr} (${period.name})` }),
             ],
             spacing: { after: 100 },
           }),
           new Paragraph({
             children: [
-              new TextRun({
-                text: locale.startsWith("en") ? "Total Assignments: " : "Toplam Atama: ",
-                bold: true,
-              }),
+              new TextRun({ text: isEn(locale) ? "Total Assignments: " : "Toplam Atama: ", bold: true }),
               new TextRun({ text: String(assignments.length) }),
-              new TextRun({
-                text: locale.startsWith("en") ? "   |   Unfilled: " : "   |   Boş: ",
-                bold: true,
-              }),
+              new TextRun({ text: isEn(locale) ? "   |   Unfilled: " : "   |   Boş: ", bold: true }),
               new TextRun({
                 text: String(unfilledAssignments.length),
                 color: unfilledAssignments.length > 0 ? "DC2626" : "16A34A",
@@ -191,7 +209,7 @@ export async function buildWordScheduleBuffer(
             spacing: { after: 400 },
           }),
           new Paragraph({
-            text: locale.startsWith("en") ? "Duty Plan" : "Nöbet Planı",
+            text: isEn(locale) ? "Duty Plan" : "Nöbet Planı",
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 200, after: 200 },
           }),
@@ -200,7 +218,7 @@ export async function buildWordScheduleBuffer(
                 new Paragraph({
                   children: [
                     new TextRun({
-                      text: locale.startsWith("en")
+                      text: isEn(locale)
                         ? "No assignments for this period."
                         : "Bu dönem için atama bulunmamaktadır.",
                       italics: true,
@@ -210,51 +228,30 @@ export async function buildWordScheduleBuffer(
                   spacing: { after: 200 },
                 }),
               ]
-            : [assignmentsTable]),
+            : [planTable(assignments, locale)]),
           ...unfilledSection,
         ],
       },
     ],
   });
 
-  return Packer.toBuffer(doc);
+  return Packer.toBlob(doc);
 }
 
-/** Schedule-only body for appending after an uploaded Word template cover page. */
-export async function buildWordScheduleAppendBuffer(
+/**
+ * Build a `.docx` `Blob` containing only the plan table, for appending after an
+ * uploaded template's cover page (see `applyPlaceholdersToDocxBuffer`).
+ */
+export async function buildWordScheduleAppendBlob(
   assignments: AssignmentRow[],
-  locale: string
-): Promise<Buffer> {
-  const dateFmt = (d: Date) => d.toLocaleDateString(locale);
-
-  const tableHeaderRow = new TableRow({
-    children: [
-      boldCell(locale.startsWith("en") ? "Date" : "Tarih"),
-      boldCell(locale.startsWith("en") ? "Location" : "Lokasyon"),
-      boldCell(locale.startsWith("en") ? "Shift" : "Vardiya"),
-      boldCell(locale.startsWith("en") ? "Assigned" : "Atanan Personel"),
-    ],
-    tableHeader: true,
-  });
-
-  const dataRows = assignments.map((a, i) => {
-    const shade = i % 2 !== 0;
-    return new TableRow({
-      children: [
-        plainCell(dateFmt(new Date(a.date)), shade),
-        plainCell(a.shiftRequirement.location.name, shade),
-        plainCell(a.shiftRequirement.shiftTemplate.name, shade),
-        plainCell(a.person?.fullName ?? (locale.startsWith("en") ? "— Empty —" : "— Boş —"), shade),
-      ],
-    });
-  });
-
+  locale: "tr" | "en"
+): Promise<Blob> {
   const doc = new Document({
     sections: [
       {
         children: [
           new Paragraph({
-            text: locale.startsWith("en") ? "Duty Plan" : "Nöbet Planı",
+            text: isEn(locale) ? "Duty Plan" : "Nöbet Planı",
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 400, after: 200 },
           }),
@@ -263,7 +260,7 @@ export async function buildWordScheduleAppendBuffer(
                 new Paragraph({
                   children: [
                     new TextRun({
-                      text: locale.startsWith("en")
+                      text: isEn(locale)
                         ? "No assignments for this period."
                         : "Bu dönem için atama bulunmamaktadır.",
                       italics: true,
@@ -272,16 +269,19 @@ export async function buildWordScheduleAppendBuffer(
                   ],
                 }),
               ]
-            : [
-                new Table({
-                  rows: [tableHeaderRow, ...dataRows],
-                  width: { size: 100, type: WidthType.PERCENTAGE },
-                }),
-              ]),
+            : [planTable(assignments, locale)]),
         ],
       },
     ],
   });
 
-  return Packer.toBuffer(doc);
+  return Packer.toBlob(doc);
+}
+
+/** Convenience: build the append payload from an `ExportInput`. */
+export async function buildWordScheduleAppendFromInput(
+  input: ExportInput,
+  locale: "tr" | "en"
+): Promise<Blob> {
+  return buildWordScheduleAppendBlob(input.assignments, locale);
 }

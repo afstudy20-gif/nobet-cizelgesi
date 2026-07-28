@@ -7,6 +7,14 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Modal } from "@/components/ui/Modal";
 import { useI18n } from "@/i18n/I18nProvider";
+import {
+  exportTemplatesRepo,
+  locationsRepo,
+  schedulePeriodsRepo,
+  type ExportTemplateCreateInput,
+} from "@/lib/db/repo";
+import type { ExportTemplate as RepoExportTemplate } from "@/lib/db/types";
+import { exportSchedule } from "@/lib/export";
 
 interface Period {
   id: string;
@@ -62,6 +70,23 @@ function defaultTemplateId(templates: ExportTemplate[], format: ExportFormat): s
   return templates.find((t) => t.format === format && t.isDefault)?.id ?? "";
 }
 
+function toPageTemplate(template: RepoExportTemplate): ExportTemplate {
+  const config = (template.config ?? {}) as ExportTemplate["config"];
+  return {
+    id: template.id,
+    name: template.name,
+    description: template.description,
+    format: template.format,
+    sourceType: template.sourceType,
+    hospitalName: template.hospitalName,
+    titleTemplate: template.titleTemplate,
+    config,
+    fileName: template.fileName,
+    hasFile: Boolean(template.fileData),
+    isDefault: template.isDefault,
+  };
+}
+
 export default function ExportPage() {
   const { t, locale } = useI18n();
   const dateLocale = locale === "en" ? "en-GB" : "tr-TR";
@@ -80,6 +105,8 @@ export default function ExportPage() {
   const [includeSummary, setIncludeSummary] = useState(true);
   const [includeConflicts, setIncludeConflicts] = useState(true);
   const [view, setView] = useState<ViewMode>("grid");
+  const [exporting, setExporting] = useState<ExportFormat | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -102,29 +129,21 @@ export default function ExportPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [periodRes, locRes, templateRes] = await Promise.all([
-        fetch("/api/periods"),
-        fetch("/api/locations"),
-        fetch("/api/export-templates"),
+      const [periodList, locList, templateList] = await Promise.all([
+        schedulePeriodsRepo.list(),
+        locationsRepo.list({ isActive: true }),
+        exportTemplatesRepo.list(),
       ]);
-      if (periodRes.ok) {
-        const data = await periodRes.json();
-        setPeriods(data);
-        if (data.length > 0) {
-          setSelectedPeriodId((prev) => prev || data[0].id);
-        }
+      setPeriods(periodList);
+      if (periodList.length > 0) {
+        setSelectedPeriodId((prev) => prev || periodList[0].id);
       }
-      if (locRes.ok) {
-        const data = await locRes.json();
-        setLocations(data.filter((l: Location & { isActive?: boolean }) => l.isActive !== false));
-      }
-      if (templateRes.ok) {
-        const data: ExportTemplate[] = await templateRes.json();
-        setTemplates(data);
-        setExcelTemplateId((prev) => prev || defaultTemplateId(data, "EXCEL"));
-        setWordTemplateId((prev) => prev || defaultTemplateId(data, "WORD"));
-        setPdfTemplateId((prev) => prev || defaultTemplateId(data, "PDF"));
-      }
+      setLocations(locList);
+      const mapped = templateList.map(toPageTemplate);
+      setTemplates(mapped);
+      setExcelTemplateId((prev) => prev || defaultTemplateId(mapped, "EXCEL"));
+      setWordTemplateId((prev) => prev || defaultTemplateId(mapped, "WORD"));
+      setPdfTemplateId((prev) => prev || defaultTemplateId(mapped, "PDF"));
     } finally {
       setLoading(false);
     }
@@ -152,39 +171,47 @@ export default function ExportPage() {
     }
   }, [excelTemplateId, templates, hospitalName]);
 
-  function buildQueryString(format: ExportFormat) {
-    const templateId =
+  function templateIdFor(format: ExportFormat): string | undefined {
+    const id =
       format === "EXCEL"
         ? excelTemplateId
         : format === "WORD"
           ? wordTemplateId
           : pdfTemplateId;
+    return id || undefined;
+  }
 
-    const params = new URLSearchParams({
-      view,
-      includeSummary: String(includeSummary),
-      includeConflicts: String(includeConflicts),
-      locale,
-    });
-    if (hospitalName.trim()) params.set("hospitalName", hospitalName.trim());
-    if (workingMonth) params.set("workingMonth", workingMonth);
-    if (templateId) params.set("templateId", templateId);
-    return params.toString();
+  async function runExport(format: ExportFormat) {
+    if (!selectedPeriodId) return;
+    setExporting(format);
+    setExportError(null);
+    try {
+      await exportSchedule(selectedPeriodId, format, {
+        view,
+        includeSummary,
+        includeConflicts,
+        locale,
+        hospitalName: hospitalName.trim() || undefined,
+        workingMonth: workingMonth || undefined,
+        templateId: templateIdFor(format),
+      });
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : t("export.errorGeneric"));
+    } finally {
+      setExporting(null);
+    }
   }
 
   function handleExcelDownload() {
-    if (!selectedPeriodId) return;
-    window.open(`/api/periods/${selectedPeriodId}/export/excel?${buildQueryString("EXCEL")}`, "_blank");
+    void runExport("EXCEL");
   }
 
   function handleWordDownload() {
-    if (!selectedPeriodId) return;
-    window.open(`/api/periods/${selectedPeriodId}/export/word?${buildQueryString("WORD")}`, "_blank");
+    void runExport("WORD");
   }
 
   function handlePdfDownload() {
-    if (!selectedPeriodId) return;
-    window.open(`/api/periods/${selectedPeriodId}/export/pdf?${buildQueryString("PDF")}`, "_blank");
+    void runExport("PDF");
   }
 
   function openNewTemplate(format?: ExportFormat) {
@@ -221,7 +248,7 @@ export default function ExportPage() {
     setTemplateSaving(true);
     setTemplateError(null);
     try {
-      const payload = {
+      const payload: ExportTemplateCreateInput = {
         name: templateForm.name,
         description: templateForm.description || null,
         format: templateForm.format,
@@ -235,31 +262,13 @@ export default function ExportPage() {
         },
       };
 
-      const url = editingTemplateId
-        ? `/api/export-templates/${editingTemplateId}`
-        : "/api/export-templates";
-      const method = editingTemplateId ? "PATCH" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.error?.message ?? t("export.errorSave"));
-      }
-      const saved = await res.json();
+      const saved =
+        editingTemplateId != null
+          ? await exportTemplatesRepo.update(editingTemplateId, payload)
+          : await exportTemplatesRepo.create(payload);
 
       if (uploadFile && (saved.format === "EXCEL" || saved.format === "WORD")) {
-        const form = new FormData();
-        form.append("file", uploadFile);
-        const uploadRes = await fetch(`/api/export-templates/${saved.id}/upload`, {
-          method: "POST",
-          body: form,
-        });
-        if (!uploadRes.ok) {
-          throw new Error(t("export.errorUpload"));
-        }
+        await exportTemplatesRepo.uploadFile(saved.id, uploadFile);
       }
 
       setTemplateModalOpen(false);
@@ -276,10 +285,10 @@ export default function ExportPage() {
 
   async function deleteTemplate(id: string) {
     if (!window.confirm(t("export.confirmDelete"))) return;
-    const res = await fetch(`/api/export-templates/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const err = await res.json().catch(() => null);
-      alert(err?.error?.message ?? t("export.errorDelete"));
+    try {
+      await exportTemplatesRepo.remove(id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : t("export.errorDelete"));
       return;
     }
     if (excelTemplateId === id) setExcelTemplateId("");
@@ -461,19 +470,32 @@ export default function ExportPage() {
           <div>
             <p className="text-sm font-medium text-gray-700 mb-3">{t("export.download")}</p>
             <div className="flex flex-wrap gap-3">
-              <Button variant="primary" onClick={handleExcelDownload} disabled={!selectedPeriodId}>
-                {t("export.downloadExcel")}
+              <Button
+                variant="primary"
+                onClick={handleExcelDownload}
+                disabled={!selectedPeriodId || exporting !== null}
+              >
+                {exporting === "EXCEL" ? t("export.saving") : t("export.downloadExcel")}
               </Button>
-              <Button variant="secondary" onClick={handlePdfDownload} disabled={!selectedPeriodId}>
-                {t("export.downloadPdf")}
+              <Button
+                variant="secondary"
+                onClick={handlePdfDownload}
+                disabled={!selectedPeriodId || exporting !== null}
+              >
+                {exporting === "PDF" ? t("export.saving") : t("export.downloadPdf")}
               </Button>
-              <Button variant="secondary" onClick={handleWordDownload} disabled={!selectedPeriodId}>
-                {t("export.downloadWord")}
+              <Button
+                variant="secondary"
+                onClick={handleWordDownload}
+                disabled={!selectedPeriodId || exporting !== null}
+              >
+                {exporting === "WORD" ? t("export.saving") : t("export.downloadWord")}
               </Button>
             </div>
             {!selectedPeriodId && (
               <p className="text-xs text-gray-400 mt-2">{t("export.selectPeriodHint")}</p>
             )}
+            {exportError && <p className="text-sm text-red-600 mt-2">{exportError}</p>}
           </div>
 
           {selectedPeriod && (

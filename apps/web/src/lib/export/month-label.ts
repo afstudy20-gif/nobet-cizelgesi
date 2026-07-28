@@ -43,6 +43,12 @@ export function formatMonthLabel(yyyyMm: string, locale: "tr" | "en" = "tr"): st
   return `${names[parsed.monthIndex]} ${parsed.year}`;
 }
 
-export function yearMonthFromDate(date: Date): string {
-  return date.toISOString().slice(0, 7);
+/**
+ * `YYYY-MM` from an ISO-8601 datetime or calendar-date string.
+ *
+ * Records now store dates as ISO strings (UTC noon for calendar days), so the
+ * old `Date#toISOString` call is just a slice of the string.
+ */
+export function yearMonthFromDate(iso: string): string {
+  return iso.slice(0, 7);
 }
