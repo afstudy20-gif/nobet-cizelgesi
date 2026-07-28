@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Users, MapPin, Clock, CalendarRange, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useI18n } from "@/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
-import type { SetupReadiness } from "@/lib/setup-readiness";
+import { mutate } from "@/lib/db/live";
+import { personLocationRulesRepo, type SetupReadiness } from "@/lib/db/repo";
 
 type DashboardStats = {
   people: number;
@@ -32,17 +32,14 @@ export function DashboardContent({
   readiness: SetupReadiness;
 }) {
   const { t } = useI18n();
-  const router = useRouter();
   const [backfilling, setBackfilling] = useState(false);
 
   async function handleBackfillLocationAccess() {
     setBackfilling(true);
     try {
-      const res = await fetch("/api/people/backfill-location-access", { method: "POST" });
-      if (!res.ok) throw new Error("backfill failed");
-      router.refresh();
+      await mutate(() => personLocationRulesRepo.backfillMissingAccess());
     } catch {
-      // refresh anyway on next navigation
+      // readiness re-reads live via useLive in the parent; nothing else to do
     } finally {
       setBackfilling(false);
     }

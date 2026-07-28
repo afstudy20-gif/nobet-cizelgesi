@@ -9,33 +9,22 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Modal } from "@/components/ui/Modal";
-
-interface PersonLocationRule {
-  locationId: string;
-  allowed: boolean;
-}
-
-interface Person {
-  id: string;
-  code: string;
-  firstName: string;
-  lastName: string;
-  fullName: string;
-  phone: string | null;
-  email: string | null;
-  role: string;
-  isActive: boolean;
-  notes: string | null;
-  locationRules?: PersonLocationRule[];
-}
+import { PersonDetail } from "@/components/people/PersonDetail";
+import { useLive, mutate } from "@/lib/db/live";
+import {
+  coverageRulesRepo,
+  peopleRepo,
+  RepoError,
+  type PersonListItem,
+} from "@/lib/db/repo";
 
 function personMissingLocationAccess(
-  person: Person,
+  person: PersonListItem,
   requiredLocationIds: string[]
 ): boolean {
   if (!person.isActive || requiredLocationIds.length === 0) return false;
   const allowed = new Set(
-    (person.locationRules ?? []).filter((r) => r.allowed).map((r) => r.locationId)
+    person.locationRules.filter((r) => r.allowed).map((r) => r.locationId)
   );
   return requiredLocationIds.some((id) => !allowed.has(id));
 }
@@ -65,9 +54,10 @@ type ImportRow = {
 
 function PeoplePageInner() {
   const searchParams = useSearchParams();
-  const [people, setPeople] = useState<Person[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const detailId = searchParams.get("id");
+
+  const [people, setPeople] = useState<PersonListItem[]>([]);
+  const [requiredLocationIds, setRequiredLocationIds] = useState<string[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -79,45 +69,22 @@ function PeoplePageInner() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
-  const [requiredLocationIds, setRequiredLocationIds] = useState<string[]>([]);
 
-  async function fetchPeople() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/people");
-      if (!res.ok) throw new Error("Veriler alınamadı");
-      const data = await res.json();
-      setPeople(data);
-    } catch {
-      setError("Personel listesi yüklenirken bir hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const peopleLive = useLive(() => peopleRepo.listDetailed(), []);
+  const coverageLive = useLive(() => coverageRulesRepo.list(), []);
 
   useEffect(() => {
-    fetchPeople();
-  }, []);
+    setPeople(peopleLive.data ?? []);
+  }, [peopleLive.data]);
 
   useEffect(() => {
-    async function loadCoverageLocations() {
-      try {
-        const res = await fetch("/api/coverage-rules");
-        if (!res.ok) return;
-        const rules: Array<{ locationId: string; isActive: boolean }> = await res.json();
-        const ids = [
-          ...new Set(
-            rules.filter((r) => r.isActive).map((r) => r.locationId)
-          ),
-        ];
-        setRequiredLocationIds(ids);
-      } catch {
-        // ignore
-      }
-    }
-    loadCoverageLocations();
-  }, []);
+    const ids = [
+      ...new Set(
+        (coverageLive.data ?? []).filter((r) => r.isActive).map((r) => r.locationId)
+      ),
+    ];
+    setRequiredLocationIds(ids);
+  }, [coverageLive.data]);
 
   useEffect(() => {
     if (searchParams.get("new") === "1") {
@@ -132,7 +99,7 @@ function PeoplePageInner() {
     setModalOpen(true);
   }
 
-  function openEdit(person: Person) {
+  function openEdit(person: PersonListItem) {
     setForm({
       code: person.code,
       firstName: person.firstName,
@@ -160,32 +127,23 @@ function PeoplePageInner() {
     setSaving(true);
     setFormError(null);
     try {
-      const url = editingId ? `/api/people/${editingId}` : "/api/people";
-      const method = editingId ? "PATCH" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "İşlem başarısız oldu");
+      if (editingId) {
+        await mutate(() => peopleRepo.update(editingId, form));
+      } else {
+        await mutate(() => peopleRepo.create(form));
       }
       closeModal();
-      await fetchPeople();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setFormError(err instanceof RepoError ? err.message : "Bir hata oluştu");
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete(person: Person) {
+  async function handleDelete(person: PersonListItem) {
     if (!window.confirm(`"${person.fullName}" adlı personeli silmek istediğinizden emin misiniz?`)) return;
     try {
-      const res = await fetch(`/api/people/${person.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Silme işlemi başarısız");
-      await fetchPeople();
+      await mutate(() => peopleRepo.remove(person.id));
     } catch {
       alert("Personel silinirken bir hata oluştu.");
     }
@@ -248,36 +206,35 @@ function PeoplePageInner() {
     setImportError(null);
     setImportMessage(null);
     try {
-      const res = await fetch("/api/people/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const result = await mutate(() =>
+        peopleRepo.createBulk({
           people: payload.map((row) => ({
             code: row.code,
             firstName: row.firstName,
             lastName: row.lastName,
             isActive: true,
           })),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error?.message ?? "Toplu içe aktarma başarısız oldu");
-      }
-
-      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
+        })
+      );
+      const skipped = result.skipped.length;
       setImportMessage(
-        `${data.created ?? payload.length} personel eklendi${skipped > 0 ? `, ${skipped} kayıt atlandı` : ""}.`
+        `${result.created} personel eklendi${skipped > 0 ? `, ${skipped} kayıt atlandı` : ""}.`
       );
       setPasteText("");
       setImportRows([]);
-      await fetchPeople();
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setImportError(err instanceof RepoError ? err.message : "Bir hata oluştu");
     } finally {
       setImporting(false);
     }
   }
+
+  if (detailId) {
+    return <PersonDetail personId={detailId} />;
+  }
+
+  const loading = peopleLive.loading;
+  const error = peopleLive.error;
 
   return (
     <div className="p-6">
@@ -400,7 +357,7 @@ function PeoplePageInner() {
       </div>
 
       {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600">{error.message}</p>}
 
       {!loading && !error && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -457,7 +414,7 @@ function PeoplePageInner() {
                       </span>
                       {personMissingLocationAccess(person, requiredLocationIds) && (
                         <Link
-                          href={`/people/${person.id}`}
+                          href={`/people?id=${person.id}`}
                           className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200"
                         >
                           Lokasyon izni eksik
@@ -467,7 +424,7 @@ function PeoplePageInner() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <Link href={`/people/${person.id}`}>
+                      <Link href={`/people?id=${person.id}`}>
                         <Button variant="ghost" size="sm">Detaylar</Button>
                       </Link>
                       <Button variant="secondary" size="sm" onClick={() => openEdit(person)}>
@@ -577,7 +534,7 @@ function PeoplePageInner() {
   );
 }
 
-export default function PeoplePage() {
+export default function PeoplePage(): React.ReactElement {
   return (
     <Suspense fallback={<div className="p-6 text-sm text-gray-500">Yükleniyor...</div>}>
       <PeoplePageInner />

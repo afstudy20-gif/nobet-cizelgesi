@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -9,59 +8,23 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Modal } from "@/components/ui/Modal";
 import { cn } from "@/lib/cn";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Location {
-  id: string;
-  code: string;
-  name: string;
-}
-
-interface WorkRule {
-  id: string;
-  maxAssignmentsPerPeriod: number | null;
-  maxNightAssignmentsPerPeriod: number | null;
-  maxWeekendAssignmentsPerPeriod: number | null;
-  maxOnCallAssignmentsPerPeriod: number | null;
-  minRestHoursBetweenAssignments: number | null;
-  allowBackToBackNightShift: boolean;
-}
-
-interface LocationRule {
-  id: string;
-  locationId: string;
-  location: Location;
-  allowed: boolean;
-}
-
-interface AvailabilityRule {
-  id: string;
-  ruleType: "WEEKLY" | "DATE_RANGE" | "ONE_DAY";
-  availabilityType: "AVAILABLE" | "UNAVAILABLE" | "PREFERRED";
-  weekdays: number[];
-  startTime: string | null;
-  endTime: string | null;
-  validFrom: string | null;
-  validTo: string | null;
-  notes: string | null;
-}
-
-interface Person {
-  id: string;
-  code: string;
-  firstName: string;
-  lastName: string;
-  fullName: string;
-  phone: string | null;
-  email: string | null;
-  role: string;
-  isActive: boolean;
-  notes: string | null;
-  workRule: WorkRule | null;
-  locationRules: LocationRule[];
-  availabilityRules: AvailabilityRule[];
-}
+import { useLive, mutate } from "@/lib/db/live";
+import {
+  availabilityRulesRepo,
+  locationsRepo,
+  peopleRepo,
+  personLocationRulesRepo,
+  personWorkRulesRepo,
+  RepoError,
+  type PersonDetail,
+  type WithLocation,
+} from "@/lib/db/repo";
+import type {
+  AvailabilityRule,
+  Location,
+  PersonLocationRule,
+  PersonWorkRule,
+} from "@/lib/db/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -92,37 +55,19 @@ type Tab = (typeof TABS)[number];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function PersonDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const [person, setPerson] = useState<Person | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function PersonDetail({ personId }: { personId: string }): React.ReactElement {
+  const detail = useLive(() => peopleRepo.getDetail(personId), [personId]);
   const [activeTab, setActiveTab] = useState<Tab>("Genel Bilgi");
 
-  const fetchPerson = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/people/${id}`);
-      if (!res.ok) throw new Error("Personel bilgileri alınamadı");
-      const data = await res.json();
-      setPerson(data);
-    } catch {
-      setError("Personel yüklenirken bir hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    fetchPerson();
-  }, [fetchPerson]);
-
-  if (loading) return <div className="p-6 text-sm text-gray-500">Yükleniyor...</div>;
-  if (error || !person)
+  if (detail.loading) {
+    return <div className="p-6 text-sm text-gray-500">Yükleniyor...</div>;
+  }
+  if (detail.error || !detail.data) {
     return (
       <div className="p-6">
-        <p className="text-sm text-red-600">{error ?? "Personel bulunamadı."}</p>
+        <p className="text-sm text-red-600">
+          {detail.error?.message ?? "Personel bulunamadı."}
+        </p>
         <Link href="/people">
           <Button variant="secondary" size="sm" className="mt-4">
             ← Listeye Dön
@@ -130,6 +75,9 @@ export default function PersonDetailPage() {
         </Link>
       </div>
     );
+  }
+
+  const person = detail.data;
 
   return (
     <div className="p-6">
@@ -171,17 +119,15 @@ export default function PersonDetailPage() {
         </nav>
       </div>
 
-      {activeTab === "Genel Bilgi" && (
-        <GeneralTab person={person} onUpdated={fetchPerson} />
-      )}
+      {activeTab === "Genel Bilgi" && <GeneralTab person={person} />}
       {activeTab === "Çalışma Kuralları" && (
-        <WorkRulesTab personId={id} workRule={person.workRule} onUpdated={fetchPerson} />
+        <WorkRulesTab personId={personId} workRule={person.workRule} />
       )}
       {activeTab === "Lokasyon İzinleri" && (
-        <LocationRulesTab personId={id} rules={person.locationRules} onUpdated={fetchPerson} />
+        <LocationRulesTab personId={personId} rules={person.locationRules} />
       )}
       {activeTab === "Müsaitlik" && (
-        <AvailabilityTab personId={id} rules={person.availabilityRules} onUpdated={fetchPerson} />
+        <AvailabilityTab personId={personId} rules={person.availabilityRules} />
       )}
     </div>
   );
@@ -189,7 +135,7 @@ export default function PersonDetailPage() {
 
 // ─── General Tab ──────────────────────────────────────────────────────────────
 
-function GeneralTab({ person, onUpdated }: { person: Person; onUpdated: () => void }) {
+function GeneralTab({ person }: { person: PersonDetail }): React.ReactElement {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     firstName: person.firstName,
@@ -208,19 +154,10 @@ function GeneralTab({ person, onUpdated }: { person: Person; onUpdated: () => vo
     setSaving(true);
     setFormError(null);
     try {
-      const res = await fetch(`/api/people/${person.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "Güncelleme başarısız");
-      }
+      await mutate(() => peopleRepo.update(person.id, form));
       setEditing(false);
-      onUpdated();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setFormError(err instanceof RepoError ? err.message : "Bir hata oluştu");
     } finally {
       setSaving(false);
     }
@@ -328,12 +265,10 @@ function GeneralTab({ person, onUpdated }: { person: Person; onUpdated: () => vo
 function WorkRulesTab({
   personId,
   workRule,
-  onUpdated,
 }: {
   personId: string;
-  workRule: WorkRule | null;
-  onUpdated: () => void;
-}) {
+  workRule: PersonWorkRule | null;
+}): React.ReactElement {
   const [form, setForm] = useState({
     maxAssignmentsPerPeriod: workRule?.maxAssignmentsPerPeriod?.toString() ?? "",
     maxNightAssignmentsPerPeriod: workRule?.maxNightAssignmentsPerPeriod?.toString() ?? "",
@@ -363,24 +298,18 @@ function WorkRulesTab({
         maxOnCallAssignmentsPerPeriod: form.maxOnCallAssignmentsPerPeriod
           ? Number(form.maxOnCallAssignmentsPerPeriod)
           : null,
+        // Unlike the max-* limits, this one is not nullable: the schema
+        // defaults it to 12 hours, so an empty field means "use the default",
+        // not "no minimum rest".
         minRestHoursBetweenAssignments: form.minRestHoursBetweenAssignments
           ? Number(form.minRestHoursBetweenAssignments)
-          : null,
+          : undefined,
         allowBackToBackNightShift: form.allowBackToBackNightShift,
       };
-      const res = await fetch(`/api/people/${personId}/work-rule`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "Güncelleme başarısız");
-      }
+      await mutate(() => personWorkRulesRepo.put(personId, body));
       setSaved(true);
-      onUpdated();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setSaveError(err instanceof RepoError ? err.message : "Bir hata oluştu");
     } finally {
       setSaving(false);
     }
@@ -432,44 +361,29 @@ function WorkRulesTab({
 function LocationRulesTab({
   personId,
   rules,
-  onUpdated,
 }: {
   personId: string;
-  rules: LocationRule[];
-  onUpdated: () => void;
-}) {
-  const [locations, setLocations] = useState<Location[]>([]);
+  rules: WithLocation<PersonLocationRule>[];
+}): React.ReactElement {
+  const locations = useLive(() => locationsRepo.list(), []);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({ locationId: "", allowed: true });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/locations")
-      .then((r) => r.json())
-      .then(setLocations)
-      .catch(() => {});
-  }, []);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
     try {
-      const res = await fetch(`/api/people/${personId}/location-rules`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "Eklenemedi");
-      }
+      await mutate(() => personLocationRulesRepo.upsert(personId, {
+        locationId: form.locationId,
+        allowed: form.allowed,
+      }));
       setModalOpen(false);
       setForm({ locationId: "", allowed: true });
-      onUpdated();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setFormError(err instanceof RepoError ? err.message : "Bir hata oluştu");
     } finally {
       setSaving(false);
     }
@@ -478,15 +392,13 @@ function LocationRulesTab({
   async function handleDelete(ruleId: string) {
     if (!window.confirm("Bu lokasyon iznini silmek istediğinizden emin misiniz?")) return;
     try {
-      const res = await fetch(`/api/people/${personId}/location-rules/${ruleId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error();
-      onUpdated();
+      await mutate(() => personLocationRulesRepo.remove(ruleId));
     } catch {
       alert("Silme işlemi başarısız.");
     }
   }
+
+  const locationList: Location[] = locations.data ?? [];
 
   return (
     <div>
@@ -517,7 +429,7 @@ function LocationRulesTab({
             )}
             {rules.map((rule) => (
               <tr key={rule.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3">{rule.location.name}</td>
+                <td className="px-4 py-3">{rule.location?.name ?? "—"}</td>
                 <td className="px-4 py-3">
                   <span
                     className={cn(
@@ -548,7 +460,7 @@ function LocationRulesTab({
             required
           >
             <option value="">— Seçiniz —</option>
-            {locations.map((l) => (
+            {locationList.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name}
               </option>
@@ -597,12 +509,10 @@ const emptyAvailForm = {
 function AvailabilityTab({
   personId,
   rules,
-  onUpdated,
 }: {
   personId: string;
-  rules: AvailabilityRule[];
-  onUpdated: () => void;
-}) {
+  rules: WithLocation<AvailabilityRule>[];
+}): React.ReactElement {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyAvailForm);
   const [saving, setSaving] = useState(false);
@@ -630,20 +540,11 @@ function AvailabilityTab({
         validTo: form.validTo || null,
         notes: form.notes || null,
       };
-      const res = await fetch(`/api/people/${personId}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "Eklenemedi");
-      }
+      await mutate(() => availabilityRulesRepo.create(personId, body));
       setModalOpen(false);
       setForm(emptyAvailForm);
-      onUpdated();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setFormError(err instanceof RepoError ? err.message : "Bir hata oluştu");
     } finally {
       setSaving(false);
     }
@@ -652,11 +553,7 @@ function AvailabilityTab({
   async function handleDelete(ruleId: string) {
     if (!window.confirm("Bu müsaitlik kuralını silmek istediğinizden emin misiniz?")) return;
     try {
-      const res = await fetch(`/api/people/${personId}/availability/${ruleId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error();
-      onUpdated();
+      await mutate(() => availabilityRulesRepo.remove(ruleId));
     } catch {
       alert("Silme işlemi başarısız.");
     }
@@ -713,6 +610,7 @@ function AvailabilityTab({
                 <td className="px-4 py-3 text-gray-600">
                   {rule.weekdays.length > 0
                     ? rule.weekdays
+                        .slice()
                         .sort((a, b) => a - b)
                         .map((d) => WEEKDAY_LABELS[d])
                         .join(", ")

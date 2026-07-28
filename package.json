@@ -7,12 +7,6 @@
     "dev": "pnpm --filter @nobet/web dev",
     "build": "pnpm --filter @nobet/web build",
     "test": "pnpm -r --if-present test",
-    "lint": "pnpm --filter @nobet/web lint",
-    "db:generate": "pnpm --filter @nobet/web db:generate",
-    "db:deploy": "pnpm --filter @nobet/web db:deploy",
-    "db:status": "pnpm --filter @nobet/web db:status",
-    "db:migrate": "pnpm --filter @nobet/web db:migrate",
-    "db:seed": "pnpm --filter @nobet/web db:seed",
-    "db:studio": "pnpm --filter @nobet/web db:studio"
+    "lint": "pnpm --filter @nobet/web lint"
   }
 }

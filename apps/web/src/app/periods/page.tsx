@@ -6,6 +6,17 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import {
+  getSetupReadiness,
+  schedulePeriodsRepo,
+  shiftRequirementsRepo,
+  RepoError,
+  type SchedulePeriodCreateInput,
+  type SchedulePeriodListItem,
+  type SetupReadiness,
+} from "@/lib/db/repo";
+import { useLive, mutate } from "@/lib/db/live";
+import { generateScheduleForPeriod, type ScheduleGenerationResult } from "@/lib/generate-schedule";
 
 interface Period {
   id: string;
@@ -27,19 +38,9 @@ const emptyForm = {
 
 type FormState = typeof emptyForm;
 
-type GenerateResult = {
-  assigned: number;
-  unfilled: number;
-  total: number;
-  conflicts: number;
-} | null;
+type GenerateResult = ScheduleGenerationResult | null;
 
 type ToastMessage = { id: string; text: string; type: "success" | "error" };
-
-type SetupReadiness = {
-  ready: boolean;
-  blockers: string[];
-};
 
 function StatusBadge({ status }: { status: Period["status"] }) {
   const map: Record<Period["status"], { label: string; className: string }> = {
@@ -55,11 +56,30 @@ function StatusBadge({ status }: { status: Period["status"] }) {
   );
 }
 
+function toPeriod(item: SchedulePeriodListItem): Period {
+  return {
+    id: item.id,
+    name: item.name,
+    startDate: item.startDate,
+    endDate: item.endDate,
+    status: item.status,
+    _count: {
+      requirements: item._count.requirements,
+      assignments: item._count.assignments,
+    },
+  };
+}
+
 function PeriodsPageInner() {
   const searchParams = useSearchParams();
-  const [periods, setPeriods] = useState<Period[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: rawPeriods,
+    loading,
+    error,
+  } = useLive<SchedulePeriodListItem[]>(() => schedulePeriodsRepo.listDetailed(), []);
+  const { data: readiness } = useLive<SetupReadiness>(() => getSetupReadiness(), []);
+
+  const periods = rawPeriods?.map(toPeriod);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -70,44 +90,12 @@ function PeriodsPageInner() {
   const [generateResults, setGenerateResults] = useState<Record<string, GenerateResult>>({});
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [readiness, setReadiness] = useState<SetupReadiness | null>(null);
 
   function addToast(text: string, type: "success" | "error") {
     const id = Math.random().toString(36).slice(2);
     setToasts((prev) => [...prev, { id, text, type }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000);
   }
-
-  async function fetchPeriods() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/periods");
-      if (!res.ok) throw new Error("Dönemler alınamadı");
-      const data = await res.json();
-      setPeriods(data);
-    } catch {
-      setError("Dönem listesi yüklenirken bir hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    fetchPeriods();
-  }, []);
-
-  useEffect(() => {
-    async function loadReadiness() {
-      try {
-        const res = await fetch("/api/setup/readiness");
-        if (res.ok) setReadiness(await res.json());
-      } catch {
-        // ignore
-      }
-    }
-    loadReadiness();
-  }, []);
 
   useEffect(() => {
     if (searchParams.get("new") === "1") {
@@ -132,19 +120,21 @@ function PeriodsPageInner() {
     setSaving(true);
     setFormError(null);
     try {
-      const res = await fetch("/api/periods", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "İşlem başarısız oldu");
-      }
+      const payload: SchedulePeriodCreateInput = {
+        name: form.name,
+        startDate: form.startDate,
+        endDate: form.endDate,
+      };
+      await mutate(() => schedulePeriodsRepo.create(payload));
       closeModal();
-      await fetchPeriods();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setFormError(
+        err instanceof RepoError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Bir hata oluştu"
+      );
     } finally {
       setSaving(false);
     }
@@ -158,9 +148,7 @@ function PeriodsPageInner() {
     )
       return;
     try {
-      const res = await fetch(`/api/periods/${period.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Silme işlemi başarısız");
-      await fetchPeriods();
+      await mutate(() => schedulePeriodsRepo.remove(period.id));
     } catch {
       addToast("Dönem silinirken bir hata oluştu.", "error");
     }
@@ -187,31 +175,17 @@ function PeriodsPageInner() {
     setGenerateResults((prev) => ({ ...prev, [period.id]: null }));
 
     try {
-      // Step 1: Generate requirements
-      const reqRes = await fetch(`/api/periods/${period.id}/requirements/generate`, {
-        method: "POST",
-      });
-      if (!reqRes.ok) {
-        const data = await reqRes.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "Gereksinim oluşturma başarısız");
-      }
-
-      // Step 2: Generate schedule
-      const schedRes = await fetch(`/api/periods/${period.id}/schedule/generate`, {
-        method: "POST",
-      });
-      if (!schedRes.ok) {
-        const data = await schedRes.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "Çizelge oluşturma başarısız");
-      }
-
-      const result = await schedRes.json();
+      // Generation is now synchronous main-thread work; the busy flag above
+      // keeps the button disabled so a second run cannot stack on this one.
+      // Step 1: Generate shift requirements for the period.
+      await mutate(() => shiftRequirementsRepo.generateForPeriod(period.id));
+      // Step 2: Solve the schedule and persist it (helper triggers sync).
+      const result = await generateScheduleForPeriod(period.id);
       setGenerateResults((prev) => ({ ...prev, [period.id]: result }));
       addToast(
         `"${period.name}": ${result.assigned} atama yapıldı, ${result.unfilled} boş kaldı.`,
         "success"
       );
-      await fetchPeriods();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Çizelge oluşturulurken bir hata oluştu.";
       addToast(msg, "error");
@@ -261,7 +235,7 @@ function PeriodsPageInner() {
       )}
 
       {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600">Dönem listesi yüklenirken bir hata oluştu.</p>}
 
       {!loading && !error && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -281,14 +255,14 @@ function PeriodsPageInner() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {periods.length === 0 && (
+              {periods && periods.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
               )}
-              {periods.map((period) => {
+              {periods?.map((period) => {
                 const isGenerating = generatingIds.has(period.id);
                 const result = generateResults[period.id];
                 return (

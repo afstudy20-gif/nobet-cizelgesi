@@ -14,6 +14,7 @@ import {
   type ExportTemplateCreateInput,
 } from "@/lib/db/repo";
 import type { ExportTemplate as RepoExportTemplate } from "@/lib/db/types";
+import { mutate } from "@/lib/db/live";
 import { exportSchedule } from "@/lib/export";
 
 interface Period {
@@ -262,13 +263,14 @@ export default function ExportPage() {
         },
       };
 
-      const saved =
+      const saved = await mutate(() =>
         editingTemplateId != null
-          ? await exportTemplatesRepo.update(editingTemplateId, payload)
-          : await exportTemplatesRepo.create(payload);
+          ? exportTemplatesRepo.update(editingTemplateId, payload)
+          : exportTemplatesRepo.create(payload)
+      );
 
       if (uploadFile && (saved.format === "EXCEL" || saved.format === "WORD")) {
-        await exportTemplatesRepo.uploadFile(saved.id, uploadFile);
+        await mutate(() => exportTemplatesRepo.uploadFile(saved.id, uploadFile));
       }
 
       setTemplateModalOpen(false);
@@ -286,7 +288,7 @@ export default function ExportPage() {
   async function deleteTemplate(id: string) {
     if (!window.confirm(t("export.confirmDelete"))) return;
     try {
-      await exportTemplatesRepo.remove(id);
+      await mutate(() => exportTemplatesRepo.remove(id));
     } catch (e) {
       alert(e instanceof Error ? e.message : t("export.errorDelete"));
       return;

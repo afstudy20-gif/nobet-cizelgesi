@@ -14,6 +14,19 @@ const eslintConfig = [
     ignores: [".next/**", "next-env.d.ts"],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      // `const { person: _person, ...rest } = record` is how this codebase drops
+      // joined relations before writing a record back. Without
+      // `ignoreRestSiblings` the discarded bindings read as unused variables,
+      // which would push the code toward a manual field-by-field copy that goes
+      // stale every time the model gains a field.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { ignoreRestSiblings: true, argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;

@@ -1,11 +1,22 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Modal } from "@/components/ui/Modal";
 import { calendarDateKey } from "@nobet/scheduler";
+import {
+  assignmentsRepo,
+  peopleRepo,
+  schedulePeriodsRepo,
+  RepoError,
+  type DetailedAssignment,
+  type ScheduleData,
+  type AssignmentPatchInput,
+} from "@/lib/db/repo";
+import type { Person, SchedulePeriod } from "@/lib/db/types";
+import { useLive, mutate } from "@/lib/db/live";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -17,31 +28,6 @@ interface Period {
   status: string;
 }
 
-interface Person {
-  id: string;
-  fullName: string;
-  code: string;
-  role?: string;
-}
-
-interface ShiftTemplate {
-  id: string;
-  name: string;
-  code: string;
-}
-
-interface Location {
-  id: string;
-  name: string;
-  code: string;
-}
-
-interface ShiftRequirement {
-  id: string;
-  shiftTemplate: ShiftTemplate;
-  location: Location;
-}
-
 interface Assignment {
   id: string;
   date: string;
@@ -50,7 +36,11 @@ interface Assignment {
   role: string | null;
   isOnCall: boolean;
   person: Person | null;
-  shiftRequirement: ShiftRequirement;
+  shiftRequirement: {
+    id: string;
+    location: { id: string; name: string };
+    shiftTemplate: { id: string; name: string; code: string };
+  } | null;
 }
 
 interface ConflictLog {
@@ -58,11 +48,6 @@ interface ConflictLog {
   type: string;
   severity: "WARNING" | "ERROR";
   message: string;
-}
-
-interface ScheduleData {
-  assignments: Assignment[];
-  conflictLogs: ConflictLog[];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -82,16 +67,55 @@ function shortDate(iso: string) {
   });
 }
 
+function toAssignment(detail: DetailedAssignment): Assignment {
+  return {
+    id: detail.id,
+    date: detail.date,
+    status: detail.status,
+    isLocked: detail.isLocked,
+    role: detail.role,
+    isOnCall: detail.isOnCall,
+    person: detail.person,
+    shiftRequirement: detail.shiftRequirement
+      ? {
+          id: detail.shiftRequirement.id,
+          location: detail.shiftRequirement.location
+            ? {
+                id: detail.shiftRequirement.location.id,
+                name: detail.shiftRequirement.location.name,
+              }
+            : { id: "", name: "—" },
+          shiftTemplate: detail.shiftRequirement.shiftTemplate
+            ? {
+                id: detail.shiftRequirement.shiftTemplate.id,
+                name: detail.shiftRequirement.shiftTemplate.name,
+                code: detail.shiftRequirement.shiftTemplate.code,
+              }
+            : { id: "", name: "—", code: "—" },
+        }
+      : null,
+  };
+}
+
+function toPeriod(period: SchedulePeriod): Period {
+  return {
+    id: period.id,
+    name: period.name,
+    startDate: period.startDate,
+    endDate: period.endDate,
+    status: period.status,
+  };
+}
+
 // ─── Edit Modal ──────────────────────────────────────────────────────────────
 
 interface EditModalProps {
   assignment: Assignment | null;
   people: Person[];
   onClose: () => void;
-  onSaved: () => void;
 }
 
-function EditAssignmentModal({ assignment, people, onClose, onSaved }: EditModalProps) {
+function EditAssignmentModal({ assignment, people, onClose }: EditModalProps) {
   const [selectedPersonId, setSelectedPersonId] = useState(assignment?.person?.id ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,19 +130,19 @@ function EditAssignmentModal({ assignment, people, onClose, onSaved }: EditModal
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/assignments/${assignment.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personId: selectedPersonId || null }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "Kaydetme başarısız");
-      }
-      onSaved();
+      const patch: AssignmentPatchInput = {
+        personId: selectedPersonId || null,
+      };
+      await mutate(() => assignmentsRepo.update(assignment.id, patch));
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setError(
+        err instanceof RepoError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Bir hata oluştu"
+      );
     } finally {
       setSaving(false);
     }
@@ -139,11 +163,11 @@ function EditAssignmentModal({ assignment, people, onClose, onSaved }: EditModal
             </p>
             <p>
               <span className="font-medium">Lokasyon:</span>{" "}
-              {assignment.shiftRequirement.location.name}
+              {assignment.shiftRequirement?.location.name}
             </p>
             <p>
               <span className="font-medium">Vardiya:</span>{" "}
-              {assignment.shiftRequirement.shiftTemplate.name}
+              {assignment.shiftRequirement?.shiftTemplate.name}
             </p>
           </div>
         )}
@@ -192,6 +216,7 @@ function TableView({ assignments, onCellClick, onToggleLock, lockingIds }: Table
 
   for (const a of assignments) {
     dateSet.add(calendarDateKey(new Date(a.date)));
+    if (!a.shiftRequirement) continue;
     colKeySet.add(
       `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`
     );
@@ -203,6 +228,7 @@ function TableView({ assignments, onCellClick, onToggleLock, lockingIds }: Table
   // Map colKey to label
   const colLabels: Record<string, string> = {};
   for (const a of assignments) {
+    if (!a.shiftRequirement) continue;
     const key = `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`;
     colLabels[key] = `${a.shiftRequirement.location.name} / ${a.shiftRequirement.shiftTemplate.code}`;
   }
@@ -210,6 +236,7 @@ function TableView({ assignments, onCellClick, onToggleLock, lockingIds }: Table
   // Build lookup: date -> colKey -> assignments[]
   const lookup: Record<string, Record<string, Assignment[]>> = {};
   for (const a of assignments) {
+    if (!a.shiftRequirement) continue;
     const d = calendarDateKey(new Date(a.date));
     const k = `${a.shiftRequirement.location.id}__${a.shiftRequirement.shiftTemplate.id}`;
     if (!lookup[d]) lookup[d] = {};
@@ -319,7 +346,7 @@ function PersonView({ assignments }: PersonViewProps) {
   // lookup: personId -> date -> shift codes
   const lookup: Record<string, Record<string, string[]>> = {};
   for (const a of assignments) {
-    if (!a.person) continue;
+    if (!a.person || !a.shiftRequirement) continue;
     const d = calendarDateKey(new Date(a.date));
     if (!lookup[a.person.id]) lookup[a.person.id] = {};
     if (!lookup[a.person.id][d]) lookup[a.person.id][d] = [];
@@ -350,11 +377,9 @@ function PersonView({ assignments }: PersonViewProps) {
             <tr key={person.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
               <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap sticky left-0 bg-inherit z-10">
                 <div>{person.fullName}</div>
-                {person.role && (
-                  <div className="text-[10px] text-gray-400 font-normal mt-0.5">
-                    {person.role === "UZMAN" ? "Uzman Doktor" : person.role === "HEMSIRE" ? "Hemşire" : "Asistan"}
-                  </div>
-                )}
+                <div className="text-[10px] text-gray-400 font-normal mt-0.5">
+                  {person.role === "UZMAN" ? "Uzman Doktor" : person.role === "HEMSIRE" ? "Hemşire" : "Asistan"}
+                </div>
               </td>
               {dates.map((d) => {
                 const codes = lookup[person.id]?.[d];
@@ -456,14 +481,14 @@ function CalendarView({ assignments }: CalendarViewProps) {
                       {dayAssignments.map((a) => (
                         <div
                           key={a.id}
-                          title={`${a.shiftRequirement.location.name} / ${a.shiftRequirement.shiftTemplate.name}`}
+                          title={`${a.shiftRequirement?.location.name ?? ""} / ${a.shiftRequirement?.shiftTemplate.name ?? ""}`}
                           className={`truncate px-1 py-0.5 rounded text-[10px] font-medium ${
                             a.status === "UNFILLED" || !a.person
                               ? "bg-red-100 text-red-700"
                               : "bg-blue-50 text-blue-800"
                           }`}
                         >
-                          {a.shiftRequirement.shiftTemplate.code}:{" "}
+                          {a.shiftRequirement?.shiftTemplate.code}: {" "}
                           {a.person ? `${a.person.fullName}${a.role ? ` (${a.role === "UZMAN" ? "Uz" : a.role === "HEMSIRE" ? "Hem" : "As"})` : ""}` : "Boş"}
                         </div>
                       ))}
@@ -487,98 +512,36 @@ function SchedulePageInner() {
 
   const periodId = searchParams.get("periodId");
 
-  const [periods, setPeriods] = useState<Period[]>([]);
-  const [periodsLoading, setPeriodsLoading] = useState(true);
+  const { data: rawPeriods } = useLive<SchedulePeriod[]>(() => schedulePeriodsRepo.list(), []);
+  const periods = rawPeriods?.map(toPeriod);
 
-  const [schedule, setSchedule] = useState<ScheduleData | null>(null);
-  const [scheduleLoading, setScheduleLoading] = useState(false);
-  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const {
+    data: schedule,
+    loading: scheduleLoading,
+    error: scheduleError,
+  } = useLive<ScheduleData | null>(
+    () => (periodId ? schedulePeriodsRepo.getSchedule(periodId) : Promise.resolve(null)),
+    [periodId]
+  );
+  const { data: people } = useLive<Person[]>(() => peopleRepo.list(), []);
 
-  const [people, setPeople] = useState<Person[]>([]);
   const [activeTab, setActiveTab] = useState<"table" | "person" | "calendar">("table");
 
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
   const [lockingIds, setLockingIds] = useState<Set<string>>(new Set());
 
-  // Fetch periods list
-  useEffect(() => {
-    async function loadPeriods() {
-      setPeriodsLoading(true);
-      try {
-        const res = await fetch("/api/periods");
-        if (res.ok) {
-          const data = await res.json();
-          setPeriods(data);
-        }
-      } finally {
-        setPeriodsLoading(false);
-      }
-    }
-    loadPeriods();
-  }, []);
-
-  // Fetch people list for edit modal
-  useEffect(() => {
-    async function loadPeople() {
-      try {
-        const res = await fetch("/api/people");
-        if (res.ok) {
-          const data = await res.json();
-          setPeople(data);
-        }
-      } catch {
-        // ignore
-      }
-    }
-    loadPeople();
-  }, []);
-
-  // Fetch schedule when periodId changes
-  useEffect(() => {
-    if (!periodId) {
-      setSchedule(null);
-      return;
-    }
-    async function loadSchedule() {
-      setScheduleLoading(true);
-      setScheduleError(null);
-      try {
-        const res = await fetch(`/api/periods/${periodId}/schedule`);
-        if (!res.ok) throw new Error("Çizelge yüklenemedi");
-        const data = await res.json();
-        setSchedule(data);
-      } catch {
-        setScheduleError("Çizelge yüklenirken bir hata oluştu.");
-      } finally {
-        setScheduleLoading(false);
-      }
-    }
-    loadSchedule();
-  }, [periodId]);
-
-  async function reloadSchedule() {
-    if (!periodId) return;
-    setScheduleLoading(true);
-    setScheduleError(null);
-    try {
-      const res = await fetch(`/api/periods/${periodId}/schedule`);
-      if (!res.ok) throw new Error("Çizelge yüklenemedi");
-      const data = await res.json();
-      setSchedule(data);
-    } catch {
-      setScheduleError("Çizelge yüklenirken bir hata oluştu.");
-    } finally {
-      setScheduleLoading(false);
-    }
-  }
+  // Assignments are derived from the live schedule; a Drive pull updates them
+  // automatically without a manual reload.
+  const assignments: Assignment[] = schedule?.assignments.map(toAssignment) ?? [];
+  const conflictLogs: ConflictLog[] = (schedule?.conflictLogs ?? []) as ConflictLog[];
 
   async function handleToggleLock(assignment: Assignment) {
     if (lockingIds.has(assignment.id)) return;
     setLockingIds((prev) => new Set(prev).add(assignment.id));
     try {
-      const action = assignment.isLocked ? "unlock" : "lock";
-      await fetch(`/api/assignments/${assignment.id}/${action}`, { method: "POST" });
-      await reloadSchedule();
+      // Lock/unlock must go through mutate: a lock that never syncs would let
+      // the next auto-generation on another device overwrite a pinned slot.
+      await mutate(() => assignmentsRepo.setLocked(assignment.id, !assignment.isLocked));
     } finally {
       setLockingIds((prev) => {
         const next = new Set(prev);
@@ -591,16 +554,20 @@ function SchedulePageInner() {
   // Compute summary
   const summary = schedule
     ? (() => {
-        const total = schedule.assignments.length;
-        const assigned = schedule.assignments.filter(
+        const total = assignments.length;
+        const assigned = assignments.filter(
           (a) => a.status === "ASSIGNED" && a.person !== null
         ).length;
-        const empty = schedule.assignments.filter(
+        const empty = assignments.filter(
           (a) => a.status === "UNFILLED" || a.person === null
         ).length;
-        const conflicts = schedule.conflictLogs.length;
+        const conflicts = conflictLogs.length;
         return { total, assigned, empty, conflicts };
       })()
+    : null;
+
+  const scheduleErrorMessage = scheduleError
+    ? "Çizelge yüklenirken bir hata oluştu."
     : null;
 
   return (
@@ -610,7 +577,7 @@ function SchedulePageInner() {
       {/* Period selector */}
       {!periodId && (
         <div className="max-w-sm">
-          {periodsLoading ? (
+          {periods === undefined ? (
             <p className="text-sm text-gray-500">Dönemler yükleniyor...</p>
           ) : (
             <div className="space-y-1">
@@ -647,7 +614,7 @@ function SchedulePageInner() {
                   if (e.target.value) router.push(`/schedule?periodId=${e.target.value}`);
                 }}
               >
-                {periods.map((p) => (
+                {periods?.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -699,27 +666,27 @@ function SchedulePageInner() {
           </div>
 
           {scheduleLoading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
-          {scheduleError && <p className="text-sm text-red-600">{scheduleError}</p>}
+          {scheduleErrorMessage && <p className="text-sm text-red-600">{scheduleErrorMessage}</p>}
 
-          {!scheduleLoading && !scheduleError && schedule && (
+          {!scheduleLoading && !scheduleErrorMessage && schedule && (
             <>
               {activeTab === "table" && (
                 <TableView
-                  assignments={schedule.assignments}
+                  assignments={assignments}
                   onCellClick={setEditingAssignment}
                   onToggleLock={handleToggleLock}
                   lockingIds={lockingIds}
                 />
               )}
               {activeTab === "person" && (
-                <PersonView assignments={schedule.assignments} />
+                <PersonView assignments={assignments} />
               )}
               {activeTab === "calendar" && (
-                <CalendarView assignments={schedule.assignments} />
+                <CalendarView assignments={assignments} />
               )}
 
               {/* Conflict log */}
-              {schedule.conflictLogs.length > 0 && (
+              {conflictLogs.length > 0 && (
                 <div className="mt-8">
                   <h2 className="text-sm font-semibold text-gray-700 mb-3">Çakışma Kayıtları</h2>
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -737,7 +704,7 @@ function SchedulePageInner() {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-100">
-                        {schedule.conflictLogs.map((log) => (
+                        {conflictLogs.map((log) => (
                           <tr key={log.id}>
                             <td className="px-4 py-3 text-gray-700 font-mono text-xs">
                               {log.type}
@@ -768,9 +735,8 @@ function SchedulePageInner() {
 
       <EditAssignmentModal
         assignment={editingAssignment}
-        people={people}
+        people={people ?? []}
         onClose={() => setEditingAssignment(null)}
-        onSaved={reloadSchedule}
       />
     </div>
   );

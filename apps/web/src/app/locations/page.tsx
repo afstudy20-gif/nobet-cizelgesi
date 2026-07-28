@@ -1,20 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Modal } from "@/components/ui/Modal";
-
-interface Location {
-  id: string;
-  code: string;
-  name: string;
-  address: string | null;
-  isActive: boolean;
-  notes: string | null;
-}
+import { locationsRepo, RepoError, type LocationCreateInput, type LocationUpdateInput } from "@/lib/db/repo";
+import type { Location } from "@/lib/db/types";
+import { useLive, mutate } from "@/lib/db/live";
 
 const emptyForm = {
   code: "",
@@ -27,33 +21,12 @@ const emptyForm = {
 type FormState = typeof emptyForm;
 
 export default function LocationsPage() {
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: locations, loading, error } = useLive<Location[]>(() => locationsRepo.list(), []);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  async function fetchLocations() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/locations");
-      if (!res.ok) throw new Error("Veriler alınamadı");
-      const data = await res.json();
-      setLocations(data);
-    } catch {
-      setError("Lokasyon listesi yüklenirken bir hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    fetchLocations();
-  }, []);
 
   function openNew() {
     setForm(emptyForm);
@@ -87,21 +60,27 @@ export default function LocationsPage() {
     setSaving(true);
     setFormError(null);
     try {
-      const url = editingId ? `/api/locations/${editingId}` : "/api/locations";
-      const method = editingId ? "PATCH" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "İşlem başarısız oldu");
+      const payload: LocationCreateInput = {
+        code: form.code,
+        name: form.name,
+        address: form.address || null,
+        isActive: form.isActive,
+        notes: form.notes || null,
+      };
+      if (editingId) {
+        await mutate(() => locationsRepo.update(editingId, payload as LocationUpdateInput));
+      } else {
+        await mutate(() => locationsRepo.create(payload));
       }
       closeModal();
-      await fetchLocations();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setFormError(
+        err instanceof RepoError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Bir hata oluştu"
+      );
     } finally {
       setSaving(false);
     }
@@ -110,9 +89,7 @@ export default function LocationsPage() {
   async function handleDelete(loc: Location) {
     if (!window.confirm(`"${loc.name}" lokasyonunu silmek istediğinizden emin misiniz?`)) return;
     try {
-      const res = await fetch(`/api/locations/${loc.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Silme işlemi başarısız");
-      await fetchLocations();
+      await mutate(() => locationsRepo.remove(loc.id));
     } catch {
       alert("Lokasyon silinirken bir hata oluştu.");
     }
@@ -130,7 +107,7 @@ export default function LocationsPage() {
       </div>
 
       {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600">Lokasyon listesi yüklenirken bir hata oluştu.</p>}
 
       {!loading && !error && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -148,14 +125,14 @@ export default function LocationsPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {locations.length === 0 && (
+              {locations && locations.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
               )}
-              {locations.map((loc) => (
+              {locations?.map((loc) => (
                 <tr key={loc.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono text-gray-700">{loc.code}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{loc.name}</td>

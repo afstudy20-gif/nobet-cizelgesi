@@ -1,41 +1,13 @@
+# One service: the static web build served by nginx.
+# No database, no volumes, no secrets — all data lives in the browser
+# (IndexedDB) and syncs to the user's own Google Drive.
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: nobet-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: nobet123
-      POSTGRES_DB: nobet_cizelgesi
-    ports:
-      - "5432:5432"
-    volumes:
-      - nobet-pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
     container_name: nobet-web
     ports:
-      - "3100:3100"
-    environment:
-      DATABASE_URL: postgresql://postgres:nobet123@postgres:5432/nobet_cizelgesi
-      NODE_ENV: production
-      PORT: 3100
-      HOSTNAME: "0.0.0.0"
-      # Generate with: pnpm --filter @nobet/web auth:hash "<password>"
-      # Compose refuses to start if these are not set in the environment / .env file.
-      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set — run "pnpm --filter @nobet/web auth:hash"}
-      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set — run "pnpm --filter @nobet/web auth:hash"}
-    depends_on:
-      postgres:
-        condition: service_healthy
+      # Host port 3100 keeps existing deploy config working; nginx serves on 80.
+      - "3100:80"
     restart: unless-stopped
-
-volumes:
-  nobet-pgdata:

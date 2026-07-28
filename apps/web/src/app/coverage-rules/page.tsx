@@ -1,42 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Modal } from "@/components/ui/Modal";
 import { cn } from "@/lib/cn";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Location {
-  id: string;
-  code: string;
-  name: string;
-}
-
-interface ShiftTemplate {
-  id: string;
-  code: string;
-  name: string;
-}
-
-interface CoverageRule {
-  id: string;
-  locationId: string;
-  location: Location;
-  shiftTemplateId: string;
-  shiftTemplate: ShiftTemplate;
-  ruleType: "WEEKLY" | "SPECIFIC_DATE" | "DATE_RANGE";
-  weekdays: number[];
-  specificDate: string | null;
-  validFrom: string | null;
-  validTo: string | null;
-  requiredHeadcount: number;
-  roleRequirements: Record<string, number> | null;
-  priority: number;
-  isActive: boolean;
-}
+import {
+  coverageRulesRepo,
+  locationsRepo,
+  shiftTemplatesRepo,
+  RepoError,
+  type CoverageRuleCreateInput,
+  type CoverageRuleUpdateInput,
+  type DetailedCoverageRule,
+} from "@/lib/db/repo";
+import type { Location, ShiftTemplate } from "@/lib/db/types";
+import { useLive, mutate } from "@/lib/db/live";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -77,40 +57,20 @@ type FormState = typeof emptyForm;
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CoverageRulesPage() {
-  const [rules, setRules] = useState<CoverageRule[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [shifts, setShifts] = useState<ShiftTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: rules, loading: rulesLoading, error: rulesError } = useLive<
+    DetailedCoverageRule[]
+  >(() => coverageRulesRepo.listDetailed(), []);
+  const { data: locations } = useLive<Location[]>(() => locationsRepo.list(), []);
+  const { data: shifts } = useLive<ShiftTemplate[]>(() => shiftTemplatesRepo.list(), []);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  async function fetchAll() {
-    setLoading(true);
-    setError(null);
-    try {
-      const [rulesRes, locRes, shiftRes] = await Promise.all([
-        fetch("/api/coverage-rules"),
-        fetch("/api/locations"),
-        fetch("/api/shift-templates"),
-      ]);
-      if (!rulesRes.ok) throw new Error("Kapsam kuralları alınamadı");
-      setRules(await rulesRes.json());
-      if (locRes.ok) setLocations(await locRes.json());
-      if (shiftRes.ok) setShifts(await shiftRes.json());
-    } catch {
-      setError("Veriler yüklenirken bir hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  const loading = rulesLoading;
+  const error = rulesError ? "Veriler yüklenirken bir hata oluştu." : null;
 
   function openNew() {
     setForm(emptyForm);
@@ -119,17 +79,17 @@ export default function CoverageRulesPage() {
     setModalOpen(true);
   }
 
-  function openEdit(rule: CoverageRule) {
+  function openEdit(rule: DetailedCoverageRule) {
     setForm({
       locationId: rule.locationId,
       shiftTemplateId: rule.shiftTemplateId,
-      ruleType: rule.ruleType,
+      ruleType: rule.ruleType === "ONE_DAY" ? "SPECIFIC_DATE" : rule.ruleType,
       weekdays: rule.weekdays,
       specificDate: rule.specificDate ?? "",
       validFrom: rule.validFrom ?? "",
       validTo: rule.validTo ?? "",
       requiredHeadcount: rule.requiredHeadcount,
-      roleRequirements: (rule.roleRequirements as Record<string, number> | null) ?? {},
+      roleRequirements: rule.roleRequirements ?? {},
       priority: rule.priority,
       isActive: rule.isActive,
     });
@@ -150,58 +110,61 @@ export default function CoverageRulesPage() {
     setSaving(true);
     setFormError(null);
     try {
-      const url = editingId ? `/api/coverage-rules/${editingId}` : "/api/coverage-rules";
-      const method = editingId ? "PATCH" : "POST";
-
       let sumRoles = 0;
       const roleReqsFiltered: Record<string, number> = {};
-      if (form.roleRequirements) {
-        for (const [r, c] of Object.entries(form.roleRequirements)) {
-          if (c > 0) {
-            roleReqsFiltered[r] = c;
-            sumRoles += c;
-          }
+      for (const [r, c] of Object.entries(form.roleRequirements)) {
+        if (c > 0) {
+          roleReqsFiltered[r] = c;
+          sumRoles += c;
         }
       }
 
-      const body = {
-        ...form,
-        requiredHeadcount: sumRoles > 0 ? Math.max(Number(form.requiredHeadcount), sumRoles) : Number(form.requiredHeadcount),
+      const payload: CoverageRuleCreateInput = {
+        locationId: form.locationId,
+        shiftTemplateId: form.shiftTemplateId,
+        ruleType: form.ruleType,
+        weekdays: form.weekdays,
+        requiredHeadcount:
+          sumRoles > 0
+            ? Math.max(Number(form.requiredHeadcount), sumRoles)
+            : Number(form.requiredHeadcount),
         roleRequirements: Object.keys(roleReqsFiltered).length > 0 ? roleReqsFiltered : null,
         priority: Number(form.priority),
         specificDate: form.specificDate || null,
         validFrom: form.validFrom || null,
         validTo: form.validTo || null,
+        isActive: form.isActive,
       };
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "İşlem başarısız oldu");
+      if (editingId) {
+        await mutate(() =>
+          coverageRulesRepo.update(editingId, payload as CoverageRuleUpdateInput)
+        );
+      } else {
+        await mutate(() => coverageRulesRepo.create(payload));
       }
       closeModal();
-      await fetchAll();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setFormError(
+        err instanceof RepoError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Bir hata oluştu"
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete(rule: CoverageRule) {
+  async function handleDelete(rule: DetailedCoverageRule) {
     if (
       !window.confirm(
-        `"${rule.location.name} – ${rule.shiftTemplate.name}" kuralını silmek istediğinizden emin misiniz?`
+        `"${rule.location?.name ?? ""} – ${rule.shiftTemplate?.name ?? ""}" kuralını silmek istediğinizden emin misiniz?`
       )
     )
       return;
     try {
-      const res = await fetch(`/api/coverage-rules/${rule.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Silme işlemi başarısız");
-      await fetchAll();
+      await mutate(() => coverageRulesRepo.remove(rule.id));
     } catch {
       alert("Kural silinirken bir hata oluştu.");
     }
@@ -228,7 +191,7 @@ export default function CoverageRulesPage() {
   const showSpecificDate = form.ruleType === "SPECIFIC_DATE";
   const showDateRange = form.ruleType === "DATE_RANGE";
 
-  function formatDays(rule: CoverageRule): string {
+  function formatDays(rule: DetailedCoverageRule): string {
     if (rule.ruleType === "SPECIFIC_DATE") return rule.specificDate ?? "—";
     if (rule.weekdays.length === 0) {
       if (rule.validFrom || rule.validTo) return `${rule.validFrom ?? ""} – ${rule.validTo ?? ""}`;
@@ -273,24 +236,24 @@ export default function CoverageRulesPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {rules.length === 0 && (
+              {rules && rules.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
               )}
-              {rules.map((rule) => (
+              {rules?.map((rule) => (
                 <tr key={rule.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-900">{rule.location.name}</td>
-                  <td className="px-4 py-3 text-gray-900">{rule.shiftTemplate.name}</td>
-                  <td className="px-4 py-3 text-gray-600">{RULE_TYPE_LABELS[rule.ruleType]}</td>
+                  <td className="px-4 py-3 text-gray-900">{rule.location?.name ?? "—"}</td>
+                  <td className="px-4 py-3 text-gray-900">{rule.shiftTemplate?.name ?? "—"}</td>
+                  <td className="px-4 py-3 text-gray-600">{RULE_TYPE_LABELS[rule.ruleType] ?? rule.ruleType}</td>
                   <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{formatDays(rule)}</td>
                   <td className="px-4 py-3 text-gray-700 font-medium">
                     <div>{rule.requiredHeadcount}</div>
                     {rule.roleRequirements && typeof rule.roleRequirements === "object" && Object.keys(rule.roleRequirements).length > 0 && (
                       <div className="text-xs text-gray-400 mt-0.5 font-normal">
-                        {Object.entries(rule.roleRequirements as Record<string, number>)
+                        {Object.entries(rule.roleRequirements)
                           .map(([r, c]) => `${r === "UZMAN" ? "Uzman" : r === "HEMSIRE" ? "Hemşire" : "Asistan"}: ${c}`)
                           .join(", ")}
                       </div>
@@ -341,7 +304,7 @@ export default function CoverageRulesPage() {
               required
             >
               <option value="">— Seçiniz —</option>
-              {locations.map((l) => (
+              {locations?.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
@@ -355,7 +318,7 @@ export default function CoverageRulesPage() {
               required
             >
               <option value="">— Seçiniz —</option>
-              {shifts.map((s) => (
+              {shifts?.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>

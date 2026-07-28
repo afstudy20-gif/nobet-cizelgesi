@@ -17,7 +17,6 @@ import {
   peopleRepo,
   schedulePeriodsRepo,
   shiftRequirementsRepo,
-  assignmentsRepo,
 } from "../repo";
 import {
   resetDb,

@@ -19,7 +19,7 @@ import {
   personWorkRulesRepo,
   RepoError,
 } from "../repo";
-import { resetDb, rawAll, rawCount, seedPerson, seedLocation, seedShift } from "./helpers";
+import { resetDb, rawAll, rawCount, seedPerson } from "./helpers";
 import type { PersonWorkRule } from "../types";
 
 function expectDuplicate(promise: Promise<unknown>): Promise<void> {

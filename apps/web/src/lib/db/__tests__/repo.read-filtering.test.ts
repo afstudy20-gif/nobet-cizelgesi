@@ -17,12 +17,10 @@ import {
   personWorkRulesRepo,
   availabilityRulesRepo,
   schedulePeriodsRepo,
-  shiftRequirementsRepo,
   assignmentsRepo,
   conflictLogsRepo,
   exportTemplatesRepo,
   getSetupReadiness,
-  RepoError,
 } from "../repo";
 import {
   resetDb,
@@ -192,8 +190,8 @@ describe("read paths filter tombstones: schedule periods and their schedule/expo
   beforeEach(resetDb);
 
   it("hides a tombstoned period from list, get, listDetailed, getDetail, schedule and export", async () => {
-    const shift = await seedShift();
-    const location = await seedLocation();
+    await seedShift();
+    await seedLocation();
     const live = await seedPeriod({ name: "live" });
     const dead = await seedPeriod({ name: "dead", startDate: "2026-04-01", endDate: "2026-04-07" });
     await tombstone<SchedulePeriod>("schedulePeriods", dead.id);

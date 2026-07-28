@@ -13,7 +13,16 @@
  * to `new Blob(...)`. JSZip works identically in both runtimes.
  */
 
-import JSZip from "jszip";
+import type JSZipType from "jszip";
+
+/**
+ * Loaded on demand. A static import pulls ~100 kB of zip code into the export
+ * page's first load for a code path that only runs when the user exports with
+ * an uploaded Word template.
+ */
+async function loadJSZip(): Promise<typeof JSZipType> {
+  return (await import("jszip")).default;
+}
 import { applyPlaceholders, type PlaceholderVars } from "./placeholders";
 
 const DOCX_XML_PATH = /^word\/(document|header\d+|footer\d+)\.xml$/;
@@ -49,6 +58,7 @@ export async function applyPlaceholdersToDocxBuffer(
   vars: PlaceholderVars,
   appendBlob?: Blob
 ): Promise<Blob> {
+  const JSZip = await loadJSZip();
   const zip = await JSZip.loadAsync(templateData);
 
   const tasks: Promise<void>[] = [];

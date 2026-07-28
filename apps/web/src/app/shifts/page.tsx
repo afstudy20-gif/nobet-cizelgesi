@@ -1,27 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Modal } from "@/components/ui/Modal";
-
-interface ShiftTemplate {
-  id: string;
-  code: string;
-  name: string;
-  startTime: string;
-  endTime: string;
-  crossesMidnight: boolean;
-  requiredHeadcount: number;
-  isNightShift: boolean;
-  isOnCall: boolean;
-  minimumRestHoursAfter: number | null;
-  color: string | null;
-  isActive: boolean;
-  notes: string | null;
-}
+import {
+  shiftTemplatesRepo,
+  RepoError,
+  type ShiftTemplateCreateInput,
+  type ShiftTemplateUpdateInput,
+} from "@/lib/db/repo";
+import type { ShiftTemplate } from "@/lib/db/types";
+import { useLive, mutate } from "@/lib/db/live";
 
 const emptyForm = {
   code: "",
@@ -41,33 +33,15 @@ const emptyForm = {
 type FormState = typeof emptyForm;
 
 export default function ShiftsPage() {
-  const [shifts, setShifts] = useState<ShiftTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: shifts, loading, error } = useLive<ShiftTemplate[]>(
+    () => shiftTemplatesRepo.list(),
+    []
+  );
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  async function fetchShifts() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/shift-templates");
-      if (!res.ok) throw new Error("Veriler alınamadı");
-      const data = await res.json();
-      setShifts(data);
-    } catch {
-      setError("Vardiya listesi yüklenirken bir hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    fetchShifts();
-  }, []);
 
   function openNew() {
     setForm(emptyForm);
@@ -86,10 +60,10 @@ export default function ShiftsPage() {
       requiredHeadcount: shift.requiredHeadcount,
       isNightShift: shift.isNightShift,
       isOnCall: shift.isOnCall,
-      minimumRestHoursAfter: shift.minimumRestHoursAfter?.toString() ?? "",
+      minimumRestHoursAfter: shift.minimumRestHoursAfter.toString(),
       color: shift.color ?? "#3b82f6",
       isActive: shift.isActive,
-      notes: shift.notes ?? "",
+      notes: "",
     });
     setEditingId(shift.id);
     setFormError(null);
@@ -108,30 +82,37 @@ export default function ShiftsPage() {
     setSaving(true);
     setFormError(null);
     try {
-      const url = editingId
-        ? `/api/shift-templates/${editingId}`
-        : "/api/shift-templates";
-      const method = editingId ? "PATCH" : "POST";
-      const body = {
-        ...form,
+      const payload: ShiftTemplateCreateInput = {
+        code: form.code,
+        name: form.name,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        crossesMidnight: form.crossesMidnight,
         requiredHeadcount: Number(form.requiredHeadcount),
+        isNightShift: form.isNightShift,
+        isOnCall: form.isOnCall,
         minimumRestHoursAfter: form.minimumRestHoursAfter
           ? Number(form.minimumRestHoursAfter)
-          : null,
+          : undefined,
+        color: form.color || null,
+        isActive: form.isActive,
       };
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error?.message ?? "İşlem başarısız oldu");
+      if (editingId) {
+        await mutate(() =>
+          shiftTemplatesRepo.update(editingId, payload as ShiftTemplateUpdateInput)
+        );
+      } else {
+        await mutate(() => shiftTemplatesRepo.create(payload));
       }
       closeModal();
-      await fetchShifts();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Bir hata oluştu");
+      setFormError(
+        err instanceof RepoError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Bir hata oluştu"
+      );
     } finally {
       setSaving(false);
     }
@@ -140,9 +121,7 @@ export default function ShiftsPage() {
   async function handleDelete(shift: ShiftTemplate) {
     if (!window.confirm(`"${shift.name}" vardiyasını silmek istediğinizden emin misiniz?`)) return;
     try {
-      const res = await fetch(`/api/shift-templates/${shift.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Silme işlemi başarısız");
-      await fetchShifts();
+      await mutate(() => shiftTemplatesRepo.remove(shift.id));
     } catch {
       alert("Vardiya silinirken bir hata oluştu.");
     }
@@ -160,7 +139,7 @@ export default function ShiftsPage() {
       </div>
 
       {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600">Vardiya listesi yüklenirken bir hata oluştu.</p>}
 
       {!loading && !error && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -180,14 +159,14 @@ export default function ShiftsPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {shifts.length === 0 && (
+              {shifts && shifts.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
               )}
-              {shifts.map((shift) => (
+              {shifts?.map((shift) => (
                 <tr key={shift.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono text-gray-700">
                     <div className="flex items-center gap-2">
@@ -231,7 +210,7 @@ export default function ShiftsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600">
-                    {shift.minimumRestHoursAfter ?? "—"}
+                    {shift.minimumRestHoursAfter}
                   </td>
                   <td className="px-4 py-3">
                     <span
