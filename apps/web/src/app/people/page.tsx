@@ -15,6 +15,8 @@ import {
   coverageRulesRepo,
   peopleRepo,
   RepoError,
+  nextCopyCode,
+  copyPersonRules,
   type PersonListItem,
 } from "@/lib/db/repo";
 
@@ -60,6 +62,8 @@ function PeoplePageInner() {
   const [requiredLocationIds, setRequiredLocationIds] = useState<string[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [sourcePersonId, setSourcePersonId] = useState<string | null>(null);
+  const [copyRules, setCopyRules] = useState(true);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -95,6 +99,7 @@ function PeoplePageInner() {
   function openNew() {
     setForm(emptyForm);
     setEditingId(null);
+    setSourcePersonId(null);
     setFormError(null);
     setModalOpen(true);
   }
@@ -111,6 +116,25 @@ function PeoplePageInner() {
       notes: person.notes ?? "",
     });
     setEditingId(person.id);
+    setSourcePersonId(null);
+    setFormError(null);
+    setModalOpen(true);
+  }
+
+  function openCopy(person: PersonListItem) {
+    setForm({
+      code: nextCopyCode(people.map((p) => p.code), person.code),
+      firstName: person.firstName,
+      lastName: person.lastName,
+      phone: person.phone ?? "",
+      email: person.email ?? "",
+      role: person.role ?? "ASISTAN",
+      isActive: person.isActive,
+      notes: person.notes ?? "",
+    });
+    setEditingId(null);
+    setSourcePersonId(person.id);
+    setCopyRules(true);
     setFormError(null);
     setModalOpen(true);
   }
@@ -118,6 +142,7 @@ function PeoplePageInner() {
   function closeModal() {
     setModalOpen(false);
     setEditingId(null);
+    setSourcePersonId(null);
     setForm(emptyForm);
     setFormError(null);
   }
@@ -130,7 +155,15 @@ function PeoplePageInner() {
       if (editingId) {
         await mutate(() => peopleRepo.update(editingId, form));
       } else {
-        await mutate(() => peopleRepo.create(form));
+        const sourceId = sourcePersonId;
+        const shouldCopyRules = copyRules && sourceId !== null;
+        await mutate(async () => {
+          const created = await peopleRepo.create(form);
+          if (shouldCopyRules && sourceId) {
+            await copyPersonRules(sourceId, created.id);
+          }
+          return created;
+        });
       }
       closeModal();
     } catch (err) {
@@ -430,6 +463,9 @@ function PeoplePageInner() {
                       <Button variant="secondary" size="sm" onClick={() => openEdit(person)}>
                         Düzenle
                       </Button>
+                      <Button variant="ghost" size="sm" onClick={() => openCopy(person)}>
+                        Kopyala
+                      </Button>
                       <Button variant="danger" size="sm" onClick={() => handleDelete(person)}>
                         Sil
                       </Button>
@@ -519,6 +555,17 @@ function PeoplePageInner() {
             value={form.notes}
             onChange={(e) => setField("notes", e.target.value)}
           />
+          {sourcePersonId && !editingId && (
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                checked={copyRules}
+                onChange={(e) => setCopyRules(e.target.checked)}
+              />
+              Çalışma kuralları, lokasyon izinleri ve uygunluk kayıtları da kopyalansın
+            </label>
+          )}
           {formError && <p className="text-sm text-red-600">{formError}</p>}
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="secondary" onClick={closeModal}>

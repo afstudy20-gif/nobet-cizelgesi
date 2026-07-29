@@ -1405,6 +1405,82 @@ export async function getSetupReadiness(): Promise<SetupReadiness> {
   };
 }
 
+// ─── Duplication ──────────────────────────────────────────────────────────────
+
+/**
+ * Pick a free code for a copy of `sourceCode`.
+ *
+ * `code` is a unique index on people, locations and shift templates, so a copy
+ * cannot reuse the original's. Suffixes count up from `-2`; copying a copy
+ * reuses the same base rather than producing `ABC-2-2`.
+ */
+export function nextCopyCode(existingCodes: readonly string[], sourceCode: string): string {
+  const base = sourceCode.replace(/-\d+$/, "");
+  const taken = new Set(existingCodes.map((code) => code.toLocaleUpperCase("tr")));
+  for (let suffix = 2; ; suffix++) {
+    const candidate = `${base}-${suffix}`;
+    if (!taken.has(candidate.toLocaleUpperCase("tr"))) return candidate;
+  }
+}
+
+/**
+ * Copy one person's rule set onto another.
+ *
+ * Runs after the target person exists, because `peopleRepo.create` already
+ * grants access to every active location — so location rules are upserted onto
+ * those rows rather than added beside them, which would leave two rules for the
+ * same person/location pair disagreeing about `allowed`.
+ *
+ * Assignments are deliberately not copied: they belong to a schedule period,
+ * not to the person.
+ */
+export async function copyPersonRules(sourceId: string, targetId: string): Promise<void> {
+  await db.transaction(
+    "rw",
+    [db.people, db.locations, db.personWorkRules, db.personLocationRules, db.availabilityRules],
+    async () => {
+      await Promise.all([
+        requireOne(db.people, sourceId, "Person not found"),
+        requireOne(db.people, targetId, "Person not found"),
+      ]);
+
+      const [workRule, locationRules, availability] = await Promise.all([
+        personWorkRulesRepo.get(sourceId),
+        personLocationRulesRepo.list(sourceId),
+        availabilityRulesRepo.list(sourceId),
+      ]);
+
+      if (workRule) {
+        await personWorkRulesRepo.put(targetId, {
+          minAssignmentsPerPeriod: workRule.minAssignmentsPerPeriod,
+          maxAssignmentsPerPeriod: workRule.maxAssignmentsPerPeriod,
+          maxNightAssignmentsPerPeriod: workRule.maxNightAssignmentsPerPeriod,
+          maxWeekendAssignmentsPerPeriod: workRule.maxWeekendAssignmentsPerPeriod,
+          maxOnCallAssignmentsPerPeriod: workRule.maxOnCallAssignmentsPerPeriod,
+          maxConsecutiveDays: workRule.maxConsecutiveDays,
+          minRestHoursBetweenAssignments: workRule.minRestHoursBetweenAssignments,
+          allowBackToBackNightShift: workRule.allowBackToBackNightShift,
+        });
+      }
+
+      for (const rule of locationRules) {
+        await personLocationRulesRepo.upsert(targetId, {
+          locationId: rule.locationId, allowed: rule.allowed, priority: rule.priority,
+        });
+      }
+
+      for (const rule of availability) {
+        await availabilityRulesRepo.create(targetId, {
+          ruleType: rule.ruleType, availabilityType: rule.availabilityType,
+          weekdays: rule.weekdays, startTime: rule.startTime, endTime: rule.endTime,
+          validFrom: rule.validFrom, validTo: rule.validTo,
+          locationId: rule.locationId, notes: rule.notes,
+        });
+      }
+    }
+  );
+}
+
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";

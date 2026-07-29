@@ -98,6 +98,25 @@ export default function CoverageRulesPage() {
     setModalOpen(true);
   }
 
+  function openCopy(rule: DetailedCoverageRule) {
+    setForm({
+      locationId: rule.locationId,
+      shiftTemplateId: rule.shiftTemplateId,
+      ruleType: rule.ruleType === "ONE_DAY" ? "SPECIFIC_DATE" : rule.ruleType,
+      weekdays: rule.weekdays,
+      specificDate: rule.specificDate ?? "",
+      validFrom: rule.validFrom ?? "",
+      validTo: rule.validTo ?? "",
+      requiredHeadcount: rule.requiredHeadcount,
+      roleRequirements: rule.roleRequirements ?? {},
+      priority: rule.priority,
+      isActive: rule.isActive,
+    });
+    setEditingId(null);
+    setFormError(null);
+    setModalOpen(true);
+  }
+
   function closeModal() {
     setModalOpen(false);
     setEditingId(null);
@@ -275,6 +294,9 @@ export default function CoverageRulesPage() {
                     <div className="flex items-center gap-2">
                       <Button variant="secondary" size="sm" onClick={() => openEdit(rule)}>
                         Düzenle
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => openCopy(rule)}>
+                        Kopyala
                       </Button>
                       <Button variant="danger" size="sm" onClick={() => handleDelete(rule)}>
                         Sil

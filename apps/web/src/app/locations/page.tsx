@@ -6,7 +6,13 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Modal } from "@/components/ui/Modal";
-import { locationsRepo, RepoError, type LocationCreateInput, type LocationUpdateInput } from "@/lib/db/repo";
+import {
+  locationsRepo,
+  RepoError,
+  nextCopyCode,
+  type LocationCreateInput,
+  type LocationUpdateInput,
+} from "@/lib/db/repo";
 import type { Location } from "@/lib/db/types";
 import { useLive, mutate } from "@/lib/db/live";
 
@@ -44,6 +50,19 @@ export default function LocationsPage() {
       notes: loc.notes ?? "",
     });
     setEditingId(loc.id);
+    setFormError(null);
+    setModalOpen(true);
+  }
+
+  function openCopy(loc: Location) {
+    setForm({
+      code: nextCopyCode(locations?.map((l) => l.code) ?? [], loc.code),
+      name: `${loc.name} (kopya)`,
+      address: loc.address ?? "",
+      isActive: loc.isActive,
+      notes: loc.notes ?? "",
+    });
+    setEditingId(null);
     setFormError(null);
     setModalOpen(true);
   }
@@ -152,6 +171,9 @@ export default function LocationsPage() {
                     <div className="flex items-center gap-2">
                       <Button variant="secondary" size="sm" onClick={() => openEdit(loc)}>
                         Düzenle
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => openCopy(loc)}>
+                        Kopyala
                       </Button>
                       <Button variant="danger" size="sm" onClick={() => handleDelete(loc)}>
                         Sil

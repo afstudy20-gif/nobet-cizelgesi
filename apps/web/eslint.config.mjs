@@ -11,7 +11,9 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   {
-    ignores: [".next/**", "next-env.d.ts"],
+    // `out/**` is the static-export build output. Without it here, `eslint .`
+    // lints the generated minified bundles after any build.
+    ignores: [".next/**", "out/**", "next-env.d.ts"],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {

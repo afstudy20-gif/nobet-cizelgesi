@@ -9,6 +9,7 @@ import { Modal } from "@/components/ui/Modal";
 import {
   shiftTemplatesRepo,
   RepoError,
+  nextCopyCode,
   type ShiftTemplateCreateInput,
   type ShiftTemplateUpdateInput,
 } from "@/lib/db/repo";
@@ -66,6 +67,26 @@ export default function ShiftsPage() {
       notes: "",
     });
     setEditingId(shift.id);
+    setFormError(null);
+    setModalOpen(true);
+  }
+
+  function openCopy(shift: ShiftTemplate) {
+    setForm({
+      code: nextCopyCode(shifts?.map((s) => s.code) ?? [], shift.code),
+      name: `${shift.name} (kopya)`,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      crossesMidnight: shift.crossesMidnight,
+      requiredHeadcount: shift.requiredHeadcount,
+      isNightShift: shift.isNightShift,
+      isOnCall: shift.isOnCall,
+      minimumRestHoursAfter: shift.minimumRestHoursAfter.toString(),
+      color: shift.color ?? "#3b82f6",
+      isActive: shift.isActive,
+      notes: "",
+    });
+    setEditingId(null);
     setFormError(null);
     setModalOpen(true);
   }
@@ -227,6 +248,9 @@ export default function ShiftsPage() {
                     <div className="flex items-center gap-2">
                       <Button variant="secondary" size="sm" onClick={() => openEdit(shift)}>
                         Düzenle
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => openCopy(shift)}>
+                        Kopyala
                       </Button>
                       <Button variant="danger" size="sm" onClick={() => handleDelete(shift)}>
                         Sil
