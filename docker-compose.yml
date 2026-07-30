@@ -6,7 +6,10 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    container_name: nobet-web
+    # No container_name on purpose. A fixed name means the next deploy tries to
+    # create a container whose name the running one still holds, which fails
+    # immediately with a name conflict — the deploy platform has to be free to
+    # name containers itself so it can start the new one before retiring the old.
     ports:
       # Host port 3100 keeps existing deploy config working; nginx serves on 3100.
       - "3100:3100"
