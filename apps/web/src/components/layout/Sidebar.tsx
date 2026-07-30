@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 import {
@@ -12,10 +13,12 @@ import {
   Download,
   Shield,
   Calculator,
+  Briefcase,
 } from "lucide-react";
 
 import { CloudSync } from "./CloudSync";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { BriefcaseModal } from "@/components/briefcase/BriefcaseModal";
 import { useI18n, useNavItems } from "@/i18n/I18nProvider";
 
 const iconByKey = {
@@ -34,6 +37,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { t } = useI18n();
   const nav = useNavItems();
+  const [briefcaseOpen, setBriefcaseOpen] = useState(false);
 
   return (
     <aside className="w-56 flex-shrink-0 bg-gray-900 text-gray-100 flex flex-col">
@@ -68,6 +72,17 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <div className="px-2 py-2 border-t border-gray-700">
+        <button
+          onClick={() => setBriefcaseOpen(true)}
+          className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+          title={t("briefcase.tip")}
+        >
+          <Briefcase size={16} />
+          {t("briefcase.title")}
+        </button>
+      </div>
+      <BriefcaseModal open={briefcaseOpen} onClose={() => setBriefcaseOpen(false)} />
     </aside>
   );
 }

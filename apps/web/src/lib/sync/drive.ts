@@ -464,6 +464,19 @@ class DriveSync {
     return !!this.accessToken && Date.now() < this.tokenExpiresAt;
   }
 
+  /**
+   * Authenticated Drive request for other modules (the briefcase), so they
+   * share this class's token, refresh and 401 handling instead of running a
+   * second OAuth flow against the same client id.
+   *
+   * Only call this from a user gesture: it may open the consent popup, or in
+   * redirect mode throw rather than navigate away mid-action.
+   */
+  async authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    await this.ensureToken();
+    return this.fetchWithAuth(url, init);
+  }
+
   private authHeaders(): Record<string, string> {
     return { Authorization: `Bearer ${this.accessToken}` };
   }

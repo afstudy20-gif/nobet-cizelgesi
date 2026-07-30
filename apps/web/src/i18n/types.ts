@@ -103,6 +103,26 @@ export type MessageKey =
   | "auth.errorInvalid"
   | "auth.errorRateLimited"
   | "auth.errorNotConfigured"
-  | "auth.errorGeneric";
+  | "auth.errorGeneric"
+  | "briefcase.title"
+  | "briefcase.tip"
+  | "briefcase.signInNeeded"
+  | "briefcase.signInGoogle"
+  | "briefcase.dropHint"
+  | "briefcase.chooseFile"
+  | "briefcase.pasteImage"
+  | "briefcase.pasteImageNone"
+  | "briefcase.empty"
+  | "briefcase.loadError"
+  | "briefcase.uploading"
+  | "briefcase.uploadError"
+  | "briefcase.downloadError"
+  | "briefcase.deleteError"
+  | "briefcase.incomplete"
+  | "briefcase.confirmDelete"
+  | "briefcase.download"
+  | "briefcase.delete"
+  | "briefcase.part"
+  | "briefcase.connecting";
 
 export type Messages = Record<MessageKey, string>;
